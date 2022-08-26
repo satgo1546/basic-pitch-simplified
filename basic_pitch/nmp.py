@@ -11,7 +11,6 @@ from numpy.typing import NDArray, ArrayLike
 
 import numpy as np
 import scipy.io, scipy.signal
-import resampy
 import pretty_midi
 
 from basic_pitch import (
@@ -935,7 +934,7 @@ def get_audio_input(
     assert overlap_len % 2 == 0, "overlap_length must be even, got {}".format(overlap_len)
 
     audio_original_samplerate, audio_original = scipy.io.wavfile.read(audio_path)
-    audio_original = resampy.resample(
+    audio_original = scipy.signal.resample(
         (
             np.float32(audio_original)
             if audio_original.ndim == 1
@@ -946,8 +945,8 @@ def get_audio_input(
             if np.issubdtype(audio_original.dtype, np.integer)
             else 1
         ),
-        audio_original_samplerate,
-        AUDIO_SAMPLE_RATE,
+        int(len(audio_original) * AUDIO_SAMPLE_RATE / audio_original_samplerate),
+        window=("kaiser", 12.984585247040012),
     )
     audio_original_length = len(audio_original)
     audio_original = np.pad(audio_original, (overlap_len // 2, 0))

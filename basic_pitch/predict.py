@@ -97,21 +97,12 @@ def main() -> None:
     parser.add_argument("--no-melodia", default=False, action="store_true", help="Skip the melodia trick.")
     args = parser.parse_args()
 
-    print("")
-    print("✨✨✨✨✨✨✨✨✨")
-    print("✨ Basic Pitch  ✨")
-    print("✨✨✨✨✨✨✨✨✨")
-
     # tensorflow is very slow to import
     # this import is here so that the help messages print faster
-    from basic_pitch.inference import predict_and_save, verify_output_dir, verify_input_path
+    from basic_pitch.inference import predict_and_save
 
     output_dir = pathlib.Path(args.output_dir)
-    verify_output_dir(output_dir)
-
     audio_path_list = [pathlib.Path(audio_path) for audio_path in args.audio_paths]
-    for audio_path in audio_path_list:
-        verify_input_path(audio_path)
 
     predict_and_save(
         audio_path_list,

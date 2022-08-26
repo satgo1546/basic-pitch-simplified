@@ -15,9 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import os
 import pathlib
-import tempfile
 import unittest
 
 import librosa
@@ -46,25 +44,6 @@ class TestPredict(unittest.TestCase):
         assert all(note_pitch_min)
         assert all(note_pitch_max)
         assert isinstance(note_events, list)
-
-    def test_predict_with_saves(self) -> None:
-        test_audio_path = RESOURCES_PATH / "vocadito_10.wav"
-        with tempfile.TemporaryDirectory() as tmpdir:
-            inference.predict_and_save(
-                [test_audio_path],
-                tmpdir,
-                True,
-                True,
-                True,
-                True,
-            )
-            expected_midi_path = tmpdir / pathlib.Path("vocadito_10_basic_pitch.mid")
-            expected_csv_path = tmpdir / pathlib.Path("vocadito_10_basic_pitch.csv")
-            expected_npz_path = tmpdir / pathlib.Path("vocadito_10_basic_pitch.npz")
-            expected_sonif_path = tmpdir / pathlib.Path("vocadito_10_basic_pitch.wav")
-
-            for output_path in [expected_midi_path, expected_csv_path, expected_npz_path, expected_sonif_path]:
-                assert os.path.exists(output_path)
 
     def test_predict_onset_threshold(self) -> None:
         test_audio_path = RESOURCES_PATH / "vocadito_10.wav"

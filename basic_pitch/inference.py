@@ -33,10 +33,6 @@ from basic_pitch.constants import (
     FFT_HOP,
 )
 from basic_pitch import ICASSP_2022_MODEL_PATH, note_creation as infer
-from basic_pitch.commandline_printing import (
-    file_saved_confirmation,
-    failed_to_save,
-)
 
 
 def window_audio_file(audio_original: Tensor, hop_size: int) -> Tuple[Tensor, List[Dict[str, int]]]:
@@ -143,94 +139,6 @@ def run_inference(
     return unwrapped_output
 
 
-class OutputExtensions(enum.Enum):
-    MIDI = "mid"
-    MODEL_OUTPUT_NPZ = "npz"
-    MIDI_SONIFICATION = "wav"
-    NOTE_EVENTS = "csv"
-
-
-def verify_input_path(audio_path: Union[pathlib.Path, str]) -> None:
-    """Verify that an input path is valid and can be processed
-
-    Args:
-        audio_path: Path to an audio file.
-
-    Raises:
-        ValueError: If the audio file is invalid.
-    """
-    if not os.path.isfile(audio_path):
-        raise ValueError(f"🚨 {audio_path} is not a file path.")
-
-    if not os.path.exists(audio_path):
-        raise ValueError(f"🚨 {audio_path} does not exist.")
-
-
-def verify_output_dir(output_dir: Union[pathlib.Path, str]) -> None:
-    """Verify that an output directory is valid and can be processed
-
-    Args:
-        output_dir: Path to an output directory.
-
-    Raises:
-        ValueError: If the output directory is invalid.
-    """
-    if not os.path.isdir(output_dir):
-        raise ValueError(f"🚨 {output_dir} is not a directory.")
-
-    if not os.path.exists(output_dir):
-        raise ValueError(f"🚨 {output_dir} does not exist.")
-
-
-def build_output_path(
-    audio_path: Union[pathlib.Path, str], output_directory: Union[pathlib.Path, str], output_type: OutputExtensions
-) -> pathlib.Path:
-    """Create an output path and make sure it doesn't already exist.
-
-    Args:
-        audio_path: The original file path.
-        output_directory: The directory we will output to.
-        output_type: The type of output file we are creating.
-
-    Raises:
-        IOError: If the generated path already exists.
-
-    Returns:
-        A new path in the output_directory with the stem audio_path and an extension
-        based on output_type.
-    """
-    audio_path = str(audio_path)
-    if not isinstance(output_directory, pathlib.Path):
-        output_directory = pathlib.Path(output_directory)
-
-    basename, _ = os.path.splitext(os.path.basename(audio_path))
-
-    output_path = output_directory / f"{basename}_basic_pitch.{output_type.value}"
-
-    return output_path
-
-
-def save_note_events(
-    note_events: List[Tuple[float, float, int, float, Optional[List[int]]]], save_path: Union[pathlib.Path, str]
-) -> None:
-    """Save note events to file
-
-    Args:
-        note_events: A list of note event tuples to save. Tuples have the format
-            ("start_time_s", "end_time_s", "pitch_midi", "velocity", "list of pitch bend values")
-        save_path: The location we're saving it
-    """
-
-    with open(save_path, "w") as fhandle:
-        writer = csv.writer(fhandle, delimiter=",")
-        writer.writerow(["start_time_s", "end_time_s", "pitch_midi", "velocity", "pitch_bend"])
-        for start_time, end_time, note_number, amplitude, pitch_bend in note_events:
-            row = [start_time, end_time, note_number, int(np.round(127 * amplitude))]
-            if pitch_bend:
-                row.extend(pitch_bend)
-            writer.writerow(row)
-
-
 def predict(
     audio_path: Union[pathlib.Path, str],
     model_or_model_path: Union[keras.Model, pathlib.Path, str] = ICASSP_2022_MODEL_PATH,
@@ -324,7 +232,6 @@ def predict_and_save(
     model = saved_model.load(str(model_path))
 
     for audio_path in audio_path_list:
-        print("")
         try:
             model_output, midi_data, note_events = predict(
                 pathlib.Path(audio_path),
@@ -339,36 +246,6 @@ def predict_and_save(
                 debug_file,
             )
 
-            if save_model_outputs:
-                model_output_path = build_output_path(audio_path, output_directory, OutputExtensions.MODEL_OUTPUT_NPZ)
-                try:
-                    np.savez(model_output_path, basic_pitch_model_output=model_output)
-                    file_saved_confirmation(OutputExtensions.MODEL_OUTPUT_NPZ.name, model_output_path)
-                except Exception:
-                    failed_to_save(OutputExtensions.MODEL_OUTPUT_NPZ.name, model_output_path)
-
-            if save_midi:
-                midi_path = build_output_path(audio_path, output_directory, OutputExtensions.MIDI)
-                try:
-                    midi_data.write(str(midi_path))
-                    file_saved_confirmation(OutputExtensions.MIDI.name, midi_path)
-                except Exception:
-                    failed_to_save(OutputExtensions.MIDI.name, midi_path)
-
-            if sonify_midi:
-                midi_sonify_path = build_output_path(audio_path, output_directory, OutputExtensions.MIDI_SONIFICATION)
-                try:
-                    infer.sonify_midi(midi_data, midi_sonify_path)
-                    file_saved_confirmation(OutputExtensions.MIDI_SONIFICATION.name, midi_sonify_path)
-                except Exception:
-                    failed_to_save(OutputExtensions.MIDI_SONIFICATION.name, midi_sonify_path)
-
-            if save_notes:
-                note_events_path = build_output_path(audio_path, output_directory, OutputExtensions.NOTE_EVENTS)
-                try:
-                    save_note_events(note_events, note_events_path)
-                    file_saved_confirmation(OutputExtensions.NOTE_EVENTS.name, note_events_path)
-                except Exception:
-                    failed_to_save(OutputExtensions.NOTE_EVENTS.name, note_events_path)
+            midi_data.write("output.mid")
         except Exception as e:
             print(e)

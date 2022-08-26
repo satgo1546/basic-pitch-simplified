@@ -143,5 +143,5 @@ cython_debug/
 # pyenv
 .python-version
 
-# junit
-junit.xml
+# program output
+output.mid

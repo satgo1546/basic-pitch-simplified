@@ -29,7 +29,7 @@ from basic_pitch.constants import (
     FFT_HOP,
     N_FREQ_BINS_CONTOURS,
 )
-from basic_pitch.layers import signal, nnaudio
+from basic_pitch import nnaudio, signal
 
 tfkl = tf.keras.layers
 

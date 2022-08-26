@@ -20,7 +20,19 @@ from typing import Any, List
 import tensorflow as tf
 import tensorflow.keras.backend as K
 
-from basic_pitch.layers.math import log_base_b
+
+def log_base_b(x: tf.Tensor, base: int) -> tf.Tensor:
+    """
+    Compute log_b(x)
+    Args:
+        x : input
+        base : log base. E.g. for log10 base=10
+    Returns:
+        log_base(x)
+    """
+    numerator = tf.math.log(x)
+    denominator = tf.math.log(tf.constant(base, dtype=numerator.dtype))
+    return numerator / denominator
 
 
 class HarmonicStacking(tf.keras.layers.Layer):

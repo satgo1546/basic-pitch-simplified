@@ -17,7 +17,6 @@
 
 from typing import Any, Callable, Optional
 import tensorflow as tf
-from basic_pitch.layers.math import log_base_b
 
 
 class Stft(tf.keras.layers.Layer):
@@ -172,7 +171,7 @@ class NormalizedLog(tf.keras.layers.Layer):
         inputs = self.squeeze_batch(inputs)  # type: ignore
         # convert magnitude to power
         power = tf.math.square(inputs)
-        log_power = 10 * log_base_b(power + 1e-10, 10)
+        log_power = 10 * tf.math.log(power + 1e-10)
 
         log_power_min = tf.reshape(tf.math.reduce_min(log_power, axis=[1, 2]), [tf.shape(inputs)[0], 1, 1])
         log_power_offset = log_power - log_power_min

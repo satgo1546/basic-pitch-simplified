@@ -17,7 +17,6 @@
 
 import csv
 import enum
-import json
 import os
 import pathlib
 from typing import Dict, List, Optional, Sequence, Tuple, Union
@@ -35,9 +34,6 @@ from basic_pitch.constants import (
 )
 from basic_pitch import ICASSP_2022_MODEL_PATH, note_creation as infer
 from basic_pitch.commandline_printing import (
-    entertaining_waiting,
-    generating_file_message,
-    no_tf_warnings,
     file_saved_confirmation,
     failed_to_save,
 )
@@ -144,19 +140,6 @@ def run_inference(
     output = model(audio_windowed)
     unwrapped_output = {k: unwrap_output(output[k], audio_original_length, n_overlapping_frames) for k in output}
 
-    if debug_file:
-        with open(debug_file, "w") as f:
-            json.dump(
-                {
-                    "audio_windowed": audio_windowed.numpy().tolist(),
-                    "audio_original_length": audio_original_length,
-                    "hop_size_samples": hop_size,
-                    "overlap_length_samples": overlap_len,
-                    "unwrapped_output": {k: v.tolist() for k, v in unwrapped_output.items()},
-                },
-                f,
-            )
-
     return unwrapped_output
 
 
@@ -224,13 +207,6 @@ def build_output_path(
 
     output_path = output_directory / f"{basename}_basic_pitch.{output_type.value}"
 
-    generating_file_message(output_type.name)
-
-    if output_path.exists():
-        raise IOError(
-            f"  🚨 {str(output_path)} already exists and would be overwritten. Skipping output files for {audio_path}."
-        )
-
     return output_path
 
 
@@ -284,52 +260,27 @@ def predict(
         The model output, midi data and note events from a single prediction
     """
 
-    with entertaining_waiting(f"Predicting MIDI for {audio_path}..."), no_tf_warnings():
-        # It's convenient to be able to pass in a keras saved model so if
-        # someone wants to place this function in a loop,
-        # the model doesn't have to be reloaded every function call
-        if isinstance(model_or_model_path, (pathlib.Path, str)):
-            model = saved_model.load(str(model_or_model_path))
-        else:
-            model = model_or_model_path
+    # It's convenient to be able to pass in a keras saved model so if
+    # someone wants to place this function in a loop,
+    # the model doesn't have to be reloaded every function call
+    if isinstance(model_or_model_path, (pathlib.Path, str)):
+        model = saved_model.load(str(model_or_model_path))
+    else:
+        model = model_or_model_path
 
-        model_output = run_inference(audio_path, model, debug_file)
+    model_output = run_inference(audio_path, model, debug_file)
 
-        min_note_len = int(np.round(minimum_note_length / 1000 * (AUDIO_SAMPLE_RATE / FFT_HOP)))
-        midi_data, note_events = infer.model_output_to_notes(
-            model_output,
-            onset_thresh=onset_threshold,
-            frame_thresh=frame_threshold,
-            min_note_len=min_note_len,  # convert to frames
-            min_freq=minimum_frequency,
-            max_freq=maximum_frequency,
-            multiple_pitch_bends=multiple_pitch_bends,
-            melodia_trick=melodia_trick,
-        )
-
-    if debug_file:
-        with open(debug_file) as f:
-            debug_data = json.load(f)
-        with open(debug_file, "w") as f:
-            json.dump(
-                {
-                    **debug_data,
-                    "min_note_length": min_note_len,
-                    "onset_thresh": onset_threshold,
-                    "frame_thresh": frame_threshold,
-                    "estimated_notes": [
-                        (
-                            float(start_time),
-                            float(end_time),
-                            int(pitch),
-                            float(amplitude),
-                            [int(b) for b in pitch_bends] if pitch_bends else None,
-                        )
-                        for start_time, end_time, pitch, amplitude, pitch_bends in note_events
-                    ],
-                },
-                f,
-            )
+    min_note_len = int(np.round(minimum_note_length / 1000 * (AUDIO_SAMPLE_RATE / FFT_HOP)))
+    midi_data, note_events = infer.model_output_to_notes(
+        model_output,
+        onset_thresh=onset_threshold,
+        frame_thresh=frame_threshold,
+        min_note_len=min_note_len,  # convert to frames
+        min_freq=minimum_frequency,
+        max_freq=maximum_frequency,
+        multiple_pitch_bends=multiple_pitch_bends,
+        melodia_trick=melodia_trick,
+    )
 
     return model_output, midi_data, note_events
 

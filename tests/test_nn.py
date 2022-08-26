@@ -22,7 +22,7 @@ import numpy as np
 from numpy.typing import NDArray
 import tensorflow as tf
 
-from basic_pitch import models, nn
+import basic_pitch
 from basic_pitch import (
     ANNOT_N_FRAMES,
     ANNOTATIONS_N_SEMITONES,
@@ -57,8 +57,8 @@ class TestHarmonicStacking(unittest.TestCase):
 
     def test_defaults(self) -> None:
         inputs = tf.keras.Input(shape=(AUDIO_N_SAMPLES, 1))
-        x = models.get_cqt(inputs, 5, True)
-        conv = nn.HarmonicStacking(3, [1, 2, 3, 4, 5], N_FREQ_BINS_CONTOURS)(x)
+        x = basic_pitch.model.get_cqt(inputs, 5, True)
+        conv = basic_pitch.model.HarmonicStacking(3, [1, 2, 3, 4, 5], N_FREQ_BINS_CONTOURS)(x)
         outputs = tfkl.Conv2D(1, (3, 3), padding="same")(conv)
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
 
@@ -92,8 +92,8 @@ class TestHarmonicStacking(unittest.TestCase):
 
     def test_fractions(self) -> None:
         inputs = tf.keras.Input(shape=(AUDIO_N_SAMPLES, 1))
-        x = models.get_cqt(inputs, 2, True)
-        conv = nn.HarmonicStacking(3, [0.5, 1, 2], N_FREQ_BINS_CONTOURS)(x)
+        x = basic_pitch.model.get_cqt(inputs, 2, True)
+        conv = basic_pitch.model.HarmonicStacking(3, [0.5, 1, 2], N_FREQ_BINS_CONTOURS)(x)
         outputs = tfkl.Conv2D(1, (3, 3), padding="same")(conv)
         model = tf.keras.Model(inputs=inputs, outputs=outputs)
 

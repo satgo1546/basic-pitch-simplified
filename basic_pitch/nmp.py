@@ -73,59 +73,6 @@ def next_power_of_2(A: int) -> int:
     return int(np.ceil(np.log2(A)))
 
 
-def early_downsample(
-    sr: Union[float, int],
-    hop_length: int,
-    n_octaves: int,
-    nyquist_hz: float,
-    filter_cutoff_hz: float,
-) -> Tuple[Union[float, int], int, int]:
-    """Return new sampling rate and hop length after early downsampling"""
-    downsample_count = early_downsample_count(nyquist_hz, filter_cutoff_hz, hop_length, n_octaves)
-    downsample_factor = 2 ** (downsample_count)
-
-    hop_length //= downsample_factor  # Getting new hop_length
-    new_sr = sr / float(downsample_factor)  # Getting new sampling rate
-
-    return new_sr, hop_length, downsample_factor
-
-
-# The following two downsampling count functions are obtained from librosa CQT
-# They are used to determine the number of pre resamplings if the starting and ending frequency
-# are both in low frequency regions.
-def early_downsample_count(nyquist_hz: float, filter_cutoff_hz: float, hop_length: int, n_octaves: int) -> int:
-    """Compute the number of early downsampling operations"""
-
-    downsample_count1 = max(0, int(np.ceil(np.log2(0.85 * nyquist_hz / filter_cutoff_hz)) - 1) - 1)
-    num_twos = next_power_of_2(hop_length)
-    downsample_count2 = max(0, num_twos - n_octaves + 1)
-
-    return min(downsample_count1, downsample_count2)
-
-
-def get_early_downsample_params(
-    sr: Union[float, int], hop_length: int, fmax_t: float, Q: float, n_octaves: int, dtype: tf.dtypes.DType
-) -> Tuple[Union[float, int], int, float, NDArray, bool]:
-    """Compute downsampling parameters used for early downsampling"""
-
-    window_bandwidth = 1.5  # for hann window
-    filter_cutoff = fmax_t * (1 + 0.5 * window_bandwidth / Q)
-    sr, hop_length, downsample_factor = early_downsample(sr, hop_length, n_octaves, sr // 2, filter_cutoff)
-    if downsample_factor != 1:
-        earlydownsample = True
-        early_downsample_filter = create_lowpass_filter(
-            band_center=1 / downsample_factor,
-            kernel_length=256,
-            transition_bandwidth=0.03,
-            dtype=dtype,
-        )
-    else:
-        early_downsample_filter = None
-        earlydownsample = False
-
-    return sr, hop_length, downsample_factor, early_downsample_filter, earlydownsample
-
-
 def get_window_dispatch(window: Union[str, Tuple[str, float]], N: int, fftbins: bool = True) -> NDArray:
     if isinstance(window, str):
         return scipy.signal.get_window(window, N, fftbins=fftbins)
@@ -396,9 +343,6 @@ class CQT2010v2(tf.keras.layers.Layer):
     [1] Schörkhuber, Christian. “CONSTANT-Q TRANSFORM TOOLBOX FOR MUSIC PROCESSING.” (2010).
     [2] Brown, Judith C.C. and Miller Puckette. “An efficient algorithm for the calculation of a
     constant Q transform.” (1992).
-    Early downsampling factor is to downsample the input audio to reduce the CQT kernel size.
-    The result with and without early downsampling are more or less the same except in the very low
-    frequency region where freq < 40Hz.
     Parameters
     ----------
     sr : int
@@ -467,7 +411,6 @@ class CQT2010v2(tf.keras.layers.Layer):
         basis_norm: int = 1,
         window: str = "hann",
         pad_mode: str = "reflect",
-        earlydownsample: bool = True,
         trainable: bool = False,
         output_format: str = "Magnitude",
         match_torch_exactly: bool = True,
@@ -485,7 +428,6 @@ class CQT2010v2(tf.keras.layers.Layer):
         self.basis_norm = basis_norm
         self.window = window
         self.pad_mode = pad_mode
-        self.earlydownsample = earlydownsample
         self.trainable = trainable
         self.output_format = output_format
         self.match_torch_exactly = match_torch_exactly
@@ -507,7 +449,6 @@ class CQT2010v2(tf.keras.layers.Layer):
                 "window": self.window,
                 "pad_mode": self.pad_mode,
                 "output_format": self.output_format,
-                "earlydownsample": self.earlydownsample,
                 "trainable": self.trainable,
                 "match_torch_exactly": self.match_torch_exactly,
             }
@@ -542,18 +483,7 @@ class CQT2010v2(tf.keras.layers.Layer):
                 "The top bin {}Hz has exceeded the Nyquist frequency, please reduce the n_bins".format(fmax_t)
             )
 
-        if self.earlydownsample is True:  # Do early downsampling if this argument is True
-            (
-                self.sample_rate,
-                self.hop_length,
-                self.downsample_factor,
-                early_downsample_filter,
-                self.earlydownsample,
-            ) = get_early_downsample_params(self.sample_rate, self.hop_length, fmax_t, Q, self.n_octaves, self.dtype)
-
-            self.early_downsample_filter = early_downsample_filter
-        else:
-            self.downsample_factor = 1.0
+        self.downsample_factor = 1.0
 
         # Preparing CQT kernels
         basis, self.n_fft, _, _ = create_cqt_kernels(
@@ -605,9 +535,6 @@ class CQT2010v2(tf.keras.layers.Layer):
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
         x = self.reshape_input(x)  # type: ignore
-
-        if self.earlydownsample is True:
-            x = downsampling_by_n(x, self.early_downsample_filter, self.downsample_factor, self.match_torch_exactly)
 
         hop = self.hop_length
 

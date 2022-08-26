@@ -7,11 +7,11 @@ import warnings
 import tensorflow as tf
 import numpy as np
 from typing import Any, List, Dict, Optional, Tuple, Union
-from numpy.typing import NDArray
+from numpy.typing import NDArray, ArrayLike
 
 import numpy as np
-import scipy.signal
-import librosa
+import scipy.io, scipy.signal
+import resampy
 import pretty_midi
 
 from basic_pitch import (
@@ -25,6 +25,14 @@ from basic_pitch import (
     FFT_HOP,
     N_FREQ_BINS_CONTOURS,
 )
+
+
+def midi_to_hz(notes: ArrayLike):
+    return 440 * (2 ** ((np.asanyarray(notes) - 69) / 12))
+
+
+def hz_to_midi(frequencies: ArrayLike):
+    return 12 * (np.log2(np.asanyarray(frequencies)) - np.log2(440)) + 69
 
 
 def create_lowpass_filter(
@@ -926,12 +934,25 @@ def get_audio_input(
     """
     assert overlap_len % 2 == 0, "overlap_length must be even, got {}".format(overlap_len)
 
-    audio_original, _ = librosa.load(audio_path, sr=AUDIO_SAMPLE_RATE, mono=True)
-
-    original_length = audio_original.shape[0]
-    audio_original = np.concatenate([np.zeros((int(overlap_len / 2),), dtype=np.float32), audio_original])
+    audio_original_samplerate, audio_original = scipy.io.wavfile.read(audio_path)
+    audio_original = resampy.resample(
+        (
+            np.float32(audio_original)
+            if audio_original.ndim == 1
+            else np.mean(audio_original, axis=1, dtype=np.float32)
+        )
+        / (
+            np.iinfo(audio_original.dtype).max
+            if np.issubdtype(audio_original.dtype, np.integer)
+            else 1
+        ),
+        audio_original_samplerate,
+        AUDIO_SAMPLE_RATE,
+    )
+    audio_original_length = len(audio_original)
+    audio_original = np.pad(audio_original, (overlap_len // 2, 0))
     audio_windowed, window_times = window_audio_file(audio_original, hop_size)
-    return audio_windowed, window_times, original_length
+    return audio_windowed, window_times, audio_original_length
 
 
 def unwrap_output(output: tf.Tensor, audio_original_length: int, n_overlapping_frames: int) -> NDArray:
@@ -1094,10 +1115,8 @@ def midi_pitch_to_contour_bin(pitch_midi: int) -> NDArray:
 
     Returns:
         index in contour matrix
-
     """
-    pitch_hz = librosa.midi_to_hz(pitch_midi)
-    return 12.0 * CONTOURS_BINS_PER_SEMITONE * np.log2(pitch_hz / ANNOTATIONS_BASE_FREQUENCY)
+    return 12 * CONTOURS_BINS_PER_SEMITONE * np.log2(midi_to_hz(pitch_midi) / ANNOTATIONS_BASE_FREQUENCY)
 
 
 def get_pitch_bends(
@@ -1238,11 +1257,11 @@ def constrain_frequency(
        frequency set to 0.
     """
     if max_freq is not None:
-        max_freq_idx = int(np.round(librosa.hz_to_midi(max_freq) - MIDI_OFFSET))
+        max_freq_idx = int(np.round(hz_to_midi(max_freq) - MIDI_OFFSET))
         onsets[:, max_freq_idx:] = 0
         frames[:, max_freq_idx:] = 0
     if min_freq is not None:
-        min_freq_idx = int(np.round(librosa.hz_to_midi(min_freq) - MIDI_OFFSET))
+        min_freq_idx = int(np.round(hz_to_midi(min_freq) - MIDI_OFFSET))
         onsets[:, :min_freq_idx] = 0
         frames[:, :min_freq_idx] = 0
 
@@ -1250,16 +1269,12 @@ def constrain_frequency(
 
 
 def model_frames_to_time(n_frames: int) -> np.ndarray:
-    original_times = librosa.core.frames_to_time(
-        np.arange(n_frames),
-        sr=AUDIO_SAMPLE_RATE,
-        hop_length=FFT_HOP,
-    )
-    window_numbers = np.floor(np.arange(n_frames) / ANNOT_N_FRAMES)
-    window_offset = (FFT_HOP / AUDIO_SAMPLE_RATE) * (
-        ANNOT_N_FRAMES - (AUDIO_N_SAMPLES / FFT_HOP)
+    original_times = np.arange(n_frames) * FFT_HOP / AUDIO_SAMPLE_RATE
+    window_numbers = np.arange(n_frames) // ANNOT_N_FRAMES
+    window_offset = FFT_HOP / AUDIO_SAMPLE_RATE * (
+        ANNOT_N_FRAMES - AUDIO_N_SAMPLES / FFT_HOP
     ) + 0.0018  # this is a magic number, but it's needed for this to align properly
-    times = original_times - (window_offset * window_numbers)
+    times = original_times - window_offset * window_numbers
     return times
 
 

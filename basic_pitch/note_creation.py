@@ -47,7 +47,6 @@ def model_output_to_notes(
     min_freq: Optional[float] = None,
     max_freq: Optional[float] = None,
     include_pitch_bends: bool = True,
-    melodia_trick: bool = True,
 ) -> Tuple[pretty_midi.PrettyMIDI, List[Tuple[float, float, int, float, Optional[List[int]]]]]:
     """Convert model output to MIDI
 
@@ -65,7 +64,6 @@ def model_output_to_notes(
         min_freq: Minimum allowed output frequency, in Hz. If None, all frequencies are used.
         max_freq: Maximum allowed output frequency, in Hz. If None, all frequencies are used.
         include_pitch_bends: If True, include pitch bends.
-        melodia_trick: Use the melodia post-processing step.
 
     Returns:
         midi : pretty_midi.PrettyMIDI object
@@ -84,7 +82,6 @@ def model_output_to_notes(
         min_note_len=min_note_len,
         min_freq=min_freq,
         max_freq=max_freq,
-        melodia_trick=melodia_trick,
     )
     if include_pitch_bends:
         estimated_notes_with_pitch_bend = get_pitch_bends(contours, estimated_notes)
@@ -285,7 +282,6 @@ def output_to_notes_polyphonic(
     infer_onsets: bool,
     max_freq: Optional[float],
     min_freq: Optional[float],
-    melodia_trick: bool = True,
     energy_tol: int = 11,
 ) -> List[Tuple[int, int, int, float]]:
     """Decode raw model output to polyphonic note events
@@ -299,7 +295,6 @@ def output_to_notes_polyphonic(
         infer_onsets: If True, add additional onsets when there are large differences in frame amplitudes.
         max_freq: Maximum allowed output frequency, in Hz.
         min_freq: Minimum allowed output frequency, in Hz.
-        melodia_trick : Whether to use the melodia trick to better detect notes.
         energy_tol: Drop notes below this energy.
 
     Returns:
@@ -365,69 +360,67 @@ def output_to_notes_polyphonic(
             )
         )
 
-    if melodia_trick:
+    energy_shape = remaining_energy.shape
 
-        energy_shape = remaining_energy.shape
+    while np.max(remaining_energy) > frame_thresh:
+        i_mid, freq_idx = np.unravel_index(np.argmax(remaining_energy), energy_shape)
+        remaining_energy[i_mid, freq_idx] = 0
 
-        while np.max(remaining_energy) > frame_thresh:
-            i_mid, freq_idx = np.unravel_index(np.argmax(remaining_energy), energy_shape)
-            remaining_energy[i_mid, freq_idx] = 0
+        # forward pass
+        i = i_mid + 1
+        k = 0
+        while i < n_frames - 1 and k < energy_tol:
 
-            # forward pass
-            i = i_mid + 1
-            k = 0
-            while i < n_frames - 1 and k < energy_tol:
+            if remaining_energy[i, freq_idx] < frame_thresh:
+                k += 1
+            else:
+                k = 0
 
-                if remaining_energy[i, freq_idx] < frame_thresh:
-                    k += 1
-                else:
-                    k = 0
+            remaining_energy[i, freq_idx] = 0
+            if freq_idx < MAX_FREQ_IDX:
+                remaining_energy[i, freq_idx + 1] = 0
+            if freq_idx > 0:
+                remaining_energy[i, freq_idx - 1] = 0
 
-                remaining_energy[i, freq_idx] = 0
-                if freq_idx < MAX_FREQ_IDX:
-                    remaining_energy[i, freq_idx + 1] = 0
-                if freq_idx > 0:
-                    remaining_energy[i, freq_idx - 1] = 0
+            i += 1
 
-                i += 1
+        i_end = i - 1 - k  # go back to frame above threshold
 
-            i_end = i - 1 - k  # go back to frame above threshold
+        # backward pass
+        i = i_mid - 1
+        k = 0
+        while i > 0 and k < energy_tol:
 
-            # backward pass
-            i = i_mid - 1
-            k = 0
-            while i > 0 and k < energy_tol:
+            if remaining_energy[i, freq_idx] < frame_thresh:
+                k += 1
+            else:
+                k = 0
 
-                if remaining_energy[i, freq_idx] < frame_thresh:
-                    k += 1
-                else:
-                    k = 0
+            remaining_energy[i, freq_idx] = 0
+            if freq_idx < MAX_FREQ_IDX:
+                remaining_energy[i, freq_idx + 1] = 0
+            if freq_idx > 0:
+                remaining_energy[i, freq_idx - 1] = 0
 
-                remaining_energy[i, freq_idx] = 0
-                if freq_idx < MAX_FREQ_IDX:
-                    remaining_energy[i, freq_idx + 1] = 0
-                if freq_idx > 0:
-                    remaining_energy[i, freq_idx - 1] = 0
+            i -= 1
 
-                i -= 1
+        i_start = i + 1 + k  # go back to frame above threshold
+        assert i_start >= 0, "{}".format(i_start)
+        assert i_end < n_frames
 
-            i_start = i + 1 + k  # go back to frame above threshold
-            assert i_start >= 0, "{}".format(i_start)
-            assert i_end < n_frames
+        if i_end - i_start <= min_note_len:
+            # note is too short, skip it
+            continue
 
-            if i_end - i_start <= min_note_len:
-                # note is too short, skip it
-                continue
-
-            # add the note
-            amplitude = np.mean(frames[i_start:i_end, freq_idx])
-            note_events.append(
-                (
-                    i_start,
-                    i_end,
-                    freq_idx + MIDI_OFFSET,
-                    amplitude,
-                )
+        # add the note
+        amplitude = np.mean(frames[i_start:i_end, freq_idx])
+        note_events.append(
+            (
+                i_start,
+                i_end,
+                freq_idx + MIDI_OFFSET,
+                amplitude,
             )
+        )
 
     return note_events

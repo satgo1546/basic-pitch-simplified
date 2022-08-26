@@ -144,7 +144,6 @@ def predict(
     minimum_note_length: float = 58,
     minimum_frequency: Optional[float] = None,
     maximum_frequency: Optional[float] = None,
-    melodia_trick: bool = True,
 ) -> Tuple[Dict[str, NDArray], pretty_midi.PrettyMIDI, List[Tuple[float, float, int, float, Optional[List[int]]]]]:
     """Run a single prediction.
 
@@ -156,7 +155,6 @@ def predict(
         minimum_note_length: The minimum allowed note length in frames.
         minimum_freq: Minimum allowed output frequency, in Hz. If None, all frequencies are used.
         maximum_freq: Maximum allowed output frequency, in Hz. If None, all frequencies are used.
-        melodia_trick: Use the melodia post-processing step.
     Returns:
         The model output, midi data and note events from a single prediction
     """
@@ -172,7 +170,6 @@ def predict(
         min_note_len=min_note_len,  # convert to frames
         min_freq=minimum_frequency,
         max_freq=maximum_frequency,
-        melodia_trick=melodia_trick,
     )
 
     return model_output, midi_data, note_events

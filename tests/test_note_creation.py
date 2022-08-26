@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from basic_pitch.model import drop_overlapping_pitch_bends
+from basic_pitch.nmp import drop_overlapping_pitch_bends
 
 
 def test_drop_overlapping_pitch_bends() -> None:

@@ -22,7 +22,7 @@ import librosa
 import pretty_midi
 import numpy as np
 
-import basic_pitch
+from basic_pitch import nmp, ANNOTATIONS_N_SEMITONES
 
 RESOURCES_PATH = os.path.join(os.path.dirname(__file__), "resources")
 
@@ -30,7 +30,7 @@ RESOURCES_PATH = os.path.join(os.path.dirname(__file__), "resources")
 class TestPredict(unittest.TestCase):
     def test_predict(self) -> None:
         test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
-        model_output, midi_data, note_events = basic_pitch.model.predict(
+        model_output, midi_data, note_events = nmp.predict(
             test_audio_path,
         )
         assert set(model_output.keys()) == set(["note", "onset", "contour"])
@@ -38,7 +38,7 @@ class TestPredict(unittest.TestCase):
         assert isinstance(midi_data, pretty_midi.PrettyMIDI)
         lowest_supported_midi = 21
         note_pitch_min = [n[2] >= lowest_supported_midi for n in note_events]
-        note_pitch_max = [n[2] <= lowest_supported_midi + basic_pitch.ANNOTATIONS_N_SEMITONES for n in note_events]
+        note_pitch_max = [n[2] <= lowest_supported_midi + ANNOTATIONS_N_SEMITONES for n in note_events]
         assert all(note_pitch_min)
         assert all(note_pitch_max)
         assert isinstance(note_events, list)
@@ -46,7 +46,7 @@ class TestPredict(unittest.TestCase):
     def test_predict_onset_threshold(self) -> None:
         test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         for onset_threshold in [0, 0.3, 0.8, 1]:
-            basic_pitch.model.predict(
+            nmp.predict(
                 test_audio_path,
                 onset_threshold=onset_threshold,
             )
@@ -54,7 +54,7 @@ class TestPredict(unittest.TestCase):
     def test_predict_frame_threshold(self) -> None:
         test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         for frame_threshold in [0, 0.3, 0.8, 1]:
-            basic_pitch.model.predict(
+            nmp.predict(
                 test_audio_path,
                 frame_threshold=frame_threshold,
             )
@@ -62,7 +62,7 @@ class TestPredict(unittest.TestCase):
     def test_predict_min_note_length(self) -> None:
         test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         for minimum_note_length in [10, 100, 1000]:
-            _, _, note_events = basic_pitch.model.predict(
+            _, _, note_events = nmp.predict(
                 test_audio_path,
                 minimum_note_length=minimum_note_length,
             )
@@ -73,7 +73,7 @@ class TestPredict(unittest.TestCase):
     def test_predict_min_freq(self) -> None:
         test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         for minimum_frequency in [40, 80, 200, 2000]:
-            _, _, note_events = basic_pitch.model.predict(
+            _, _, note_events = nmp.predict(
                 test_audio_path,
                 minimum_frequency=minimum_frequency,
             )
@@ -84,7 +84,7 @@ class TestPredict(unittest.TestCase):
     def test_predict_max_freq(self) -> None:
         test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         for maximum_frequency in [40, 80, 200, 2000]:
-            _, _, note_events = basic_pitch.model.predict(
+            _, _, note_events = nmp.predict(
                 test_audio_path,
                 maximum_frequency=maximum_frequency,
             )

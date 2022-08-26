@@ -29,6 +29,7 @@ from basic_pitch.constants import (
     FFT_HOP,
 )
 from basic_pitch import ICASSP_2022_MODEL_PATH, note_creation as infer
+import basic_pitch.models
 
 
 def window_audio_file(audio_original: Tensor, hop_size: int) -> Tuple[Tensor, List[Dict[str, int]]]:
@@ -136,7 +137,6 @@ def run_inference(
 
 def predict(
     audio_path: str,
-    model_or_model_path: Union[keras.Model, str] = ICASSP_2022_MODEL_PATH,
     onset_threshold: float = 0.5,
     frame_threshold: float = 0.3,
     minimum_note_length: float = 58,
@@ -160,15 +160,8 @@ def predict(
     Returns:
         The model output, midi data and note events from a single prediction
     """
-
-    # It's convenient to be able to pass in a keras saved model so if
-    # someone wants to place this function in a loop,
-    # the model doesn't have to be reloaded every function call
-    if isinstance(model_or_model_path, str):
-        model = saved_model.load(str(model_or_model_path))
-    else:
-        model = model_or_model_path
-
+    model = basic_pitch.models.model()
+    model.load_weights(ICASSP_2022_MODEL_PATH)
     model_output = run_inference(audio_path, model)
 
     min_note_len = int(np.round(minimum_note_length / 1000 * (AUDIO_SAMPLE_RATE / FFT_HOP)))
@@ -208,12 +201,9 @@ def predict_and_save(
         multiple_pitch_bends: If True, allow overlapping notes in midi file to have pitch bends.
         melodia_trick: Use the melodia post-processing step.
     """
-    model = saved_model.load(ICASSP_2022_MODEL_PATH)
-
     for audio_path in audio_path_list:
         model_output, midi_data, note_events = predict(
             audio_path,
-            model,
             onset_threshold,
             frame_threshold,
             minimum_note_length,

@@ -17,22 +17,8 @@
 
 from typing import Any, List
 
+import numpy as np
 import tensorflow as tf
-import tensorflow.keras.backend as K
-
-
-def log_base_b(x: tf.Tensor, base: int) -> tf.Tensor:
-    """
-    Compute log_b(x)
-    Args:
-        x : input
-        base : log base. E.g. for log10 base=10
-    Returns:
-        log_base(x)
-    """
-    numerator = tf.math.log(x)
-    denominator = tf.math.log(tf.constant(base, dtype=numerator.dtype))
-    return numerator / denominator
 
 
 class HarmonicStacking(tf.keras.layers.Layer):
@@ -52,14 +38,14 @@ class HarmonicStacking(tf.keras.layers.Layer):
     """
 
     def __init__(
-        self, bins_per_semitone: int, harmonics: List[float], n_output_freqs: int, name: str = "harmonic_stacking"
+        self, bins_per_semitone: int, harmonics: List[float], n_output_freqs: int
     ):
         """Downsample frequency by stride, upsample channels by 4."""
-        super().__init__(trainable=False, name=name)
+        super().__init__(trainable=False)
         self.bins_per_semitone = bins_per_semitone
         self.harmonics = harmonics
         self.shifts = [
-            int(tf.math.round(12.0 * self.bins_per_semitone * log_base_b(float(h), 2))) for h in self.harmonics
+            round(12 * self.bins_per_semitone * np.log2(h)) for h in self.harmonics
         ]
         self.n_output_freqs = n_output_freqs
 
@@ -106,7 +92,7 @@ class FlattenAudioCh(tf.keras.layers.Layer):
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
         """x: (batch, time, ch)"""
-        shapes = K.int_shape(x)
+        shapes = tf.keras.backend.int_shape(x)
         tf.assert_equal(shapes[2], 1)
         return tf.keras.layers.Reshape([shapes[1]])(x)  # ignore batch size
 
@@ -120,5 +106,5 @@ class FlattenFreqCh(tf.keras.layers.Layer):
     """
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
-        shapes = K.int_shape(x)
+        shapes = tf.keras.backend.int_shape(x)
         return tf.keras.layers.Reshape([shapes[1], shapes[2] * shapes[3]])(x)  # ignore batch size

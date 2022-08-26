@@ -15,10 +15,11 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Iterator, Tuple
 import unittest
+from typing import Iterator, Tuple
 
 import numpy as np
+from numpy.typing import NDArray
 import tensorflow as tf
 
 from basic_pitch import models, nn
@@ -35,7 +36,7 @@ tfkl = tf.keras.layers
 
 
 class TestHarmonicStacking(unittest.TestCase):
-    def _audio_data_gen(self) -> Iterator[Tuple[np.array, np.array]]:
+    def _audio_data_gen(self) -> Iterator[Tuple[NDArray, NDArray]]:
         while True:
             audio = np.random.uniform(size=(BATCH_SIZE, AUDIO_N_SAMPLES, 1)).astype(np.float32)
             output = np.random.uniform(size=(BATCH_SIZE, ANNOT_N_FRAMES, ANNOTATIONS_N_SEMITONES * 3, 1)).astype(

@@ -16,7 +16,8 @@
 # limitations under the License.
 
 import os
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Tuple
+from numpy.typing import NDArray
 
 from tensorflow import Tensor, signal, keras
 import numpy as np
@@ -85,7 +86,7 @@ def get_audio_input(
     return audio_windowed, window_times, original_length
 
 
-def unwrap_output(output: Tensor, audio_original_length: int, n_overlapping_frames: int) -> np.array:
+def unwrap_output(output: Tensor, audio_original_length: int, n_overlapping_frames: int) -> NDArray:
     """Unwrap batched model predictions to a single matrix.
 
     Args:
@@ -113,7 +114,7 @@ def unwrap_output(output: Tensor, audio_original_length: int, n_overlapping_fram
 
 def run_inference(
     audio_path: str, model: keras.Model
-) -> Dict[str, np.array]:
+) -> Dict[str, NDArray]:
     """Run the model on the input audio path.
 
     Args:
@@ -145,7 +146,7 @@ def predict(
     maximum_frequency: Optional[float] = None,
     multiple_pitch_bends: bool = False,
     melodia_trick: bool = True,
-) -> Tuple[Dict[str, np.array], pretty_midi.PrettyMIDI, List[Tuple[float, float, int, float, Optional[List[int]]]]]:
+) -> Tuple[Dict[str, NDArray], pretty_midi.PrettyMIDI, List[Tuple[float, float, int, float, Optional[List[int]]]]]:
     """Run a single prediction.
 
     Args:

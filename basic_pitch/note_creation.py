@@ -16,7 +16,8 @@
 # limitations under the License.
 
 from collections import defaultdict
-from typing import DefaultDict, Dict, List, Optional, Tuple, Union
+from typing import DefaultDict, Dict, List, Optional, Tuple
+from numpy.typing import NDArray
 import librosa
 import numpy as np
 import pretty_midi
@@ -38,7 +39,7 @@ MAX_FREQ_IDX = 87
 
 
 def model_output_to_notes(
-    output: Dict[str, np.array],
+    output: Dict[str, NDArray],
     onset_thresh: float,
     frame_thresh: float,
     infer_onsets: bool = True,
@@ -100,7 +101,7 @@ def model_output_to_notes(
     return note_events_to_midi(estimated_notes_time_seconds, multiple_pitch_bends), estimated_notes_time_seconds
 
 
-def midi_pitch_to_contour_bin(pitch_midi: int) -> np.array:
+def midi_pitch_to_contour_bin(pitch_midi: int) -> NDArray:
     """Convert midi pitch to conrresponding index in contour matrix
 
     Args:
@@ -218,7 +219,7 @@ def drop_overlapping_pitch_bends(
     return note_events
 
 
-def get_infered_onsets(onsets: np.array, frames: np.array, n_diff: int = 2) -> np.array:
+def get_infered_onsets(onsets: NDArray, frames: NDArray, n_diff: int = 2) -> NDArray:
     """Infer onsets from large changes in frame amplitudes.
 
     Args:
@@ -244,8 +245,8 @@ def get_infered_onsets(onsets: np.array, frames: np.array, n_diff: int = 2) -> n
 
 
 def constrain_frequency(
-    onsets: np.array, frames: np.array, max_freq: Optional[float], min_freq: Optional[float]
-) -> Tuple[np.array, np.array]:
+    onsets: NDArray, frames: NDArray, max_freq: Optional[float], min_freq: Optional[float]
+) -> Tuple[NDArray, NDArray]:
     """Zero out activations above or below the max/min frequencies
 
     Args:
@@ -285,8 +286,8 @@ def model_frames_to_time(n_frames: int) -> np.ndarray:
 
 
 def output_to_notes_polyphonic(
-    frames: np.array,
-    onsets: np.array,
+    frames: NDArray,
+    onsets: NDArray,
     onset_thresh: float,
     frame_thresh: float,
     min_note_len: int,

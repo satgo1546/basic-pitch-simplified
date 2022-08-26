@@ -23,6 +23,7 @@ import warnings
 import tensorflow as tf
 import numpy as np
 from typing import Any, List, Optional, Tuple, Union
+from numpy.typing import NDArray
 
 import scipy.signal
 
@@ -98,7 +99,7 @@ def early_downsample_count(nyquist_hz: float, filter_cutoff_hz: float, hop_lengt
 
 def get_early_downsample_params(
     sr: Union[float, int], hop_length: int, fmax_t: float, Q: float, n_octaves: int, dtype: tf.dtypes.DType
-) -> Tuple[Union[float, int], int, float, np.array, bool]:
+) -> Tuple[Union[float, int], int, float, NDArray, bool]:
     """Compute downsampling parameters used for early downsampling"""
 
     window_bandwidth = 1.5  # for hann window
@@ -119,7 +120,7 @@ def get_early_downsample_params(
     return sr, hop_length, downsample_factor, early_downsample_filter, earlydownsample
 
 
-def get_window_dispatch(window: Union[str, Tuple[str, float]], N: int, fftbins: bool = True) -> np.array:
+def get_window_dispatch(window: Union[str, Tuple[str, float]], N: int, fftbins: bool = True) -> NDArray:
     if isinstance(window, str):
         return scipy.signal.get_window(window, N, fftbins=fftbins)
     elif isinstance(window, tuple):
@@ -145,7 +146,7 @@ def create_cqt_kernels(
     window: str = "hann",
     fmax: Optional[float] = None,
     topbin_check: bool = True,
-) -> Tuple[np.array, int, np.array, np.array]:
+) -> Tuple[NDArray, int, NDArray, NDArray]:
     """
     Automatically create CQT kernels in time domain
     """

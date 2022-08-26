@@ -1,3 +1,6 @@
+#!/usr/bin/env python
+# encoding: utf-8
+
 # This module is comprised of PyTorch layers from NNAudio and ported to TensorFlow:
 # https://github.com/KinWaiCheuk/nnAudio
 # The above code is released under an MIT license.
@@ -13,17 +16,27 @@ import scipy.io, scipy.signal
 import tensorflow as tf
 import pretty_midi
 
-from basic_pitch import (
-    AUDIO_SAMPLE_RATE,
-    AUDIO_N_SAMPLES,
-    ANNOTATIONS_FPS,
-    ANNOTATIONS_BASE_FREQUENCY,
-    ANNOTATIONS_N_SEMITONES,
-    ANNOT_N_FRAMES,
-    CONTOURS_BINS_PER_SEMITONE,
-    FFT_HOP,
-    N_FREQ_BINS_CONTOURS,
-)
+
+FFT_HOP = 256
+N_FFT = 8 * FFT_HOP
+
+CONTOURS_BINS_PER_SEMITONE = 3
+# base frequency of the CENTRAL bin of the first semitone (i.e., the
+# second bin if annotations_bins_per_semitone is 3)
+ANNOTATIONS_BASE_FREQUENCY = 27.5  # lowest key on a piano
+ANNOTATIONS_N_SEMITONES = 88  # number of piano keys
+AUDIO_SAMPLE_RATE = 22050
+N_FREQ_BINS_CONTOURS = ANNOTATIONS_N_SEMITONES * CONTOURS_BINS_PER_SEMITONE
+
+AUDIO_WINDOW_LENGTH = 2  # duration in seconds of training examples - original 1
+
+ANNOTATIONS_FPS = AUDIO_SAMPLE_RATE // FFT_HOP
+
+# ANNOT_N_TIME_FRAMES is the number of frames in the time-frequency representations we compute
+ANNOT_N_FRAMES = ANNOTATIONS_FPS * AUDIO_WINDOW_LENGTH
+
+# AUDIO_N_SAMPLES is the number of samples in the (clipped) audio that we use as input to the models
+AUDIO_N_SAMPLES = AUDIO_SAMPLE_RATE * AUDIO_WINDOW_LENGTH - FFT_HOP
 
 
 def midi_to_hz(notes: ArrayLike):
@@ -1205,3 +1218,7 @@ def output_to_notes_polyphonic(
         )
 
     return note_events
+
+if __name__ == "__main__":
+    os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
+    predict("input.wav")[1].write("output.mid")

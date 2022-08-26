@@ -22,7 +22,8 @@ import librosa
 import pretty_midi
 import numpy as np
 
-from basic_pitch import nmp, ANNOTATIONS_N_SEMITONES
+import nmp
+from nmp import ANNOTATIONS_N_SEMITONES
 
 RESOURCES_PATH = os.path.join(os.path.dirname(__file__), "resources")
 

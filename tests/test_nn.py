@@ -22,8 +22,8 @@ import numpy as np
 from numpy.typing import NDArray
 import tensorflow as tf
 
-from basic_pitch import nmp
-from basic_pitch import (
+import nmp
+from nmp import (
     ANNOT_N_FRAMES,
     ANNOTATIONS_N_SEMITONES,
     AUDIO_N_SAMPLES,

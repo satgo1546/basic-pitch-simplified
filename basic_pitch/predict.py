@@ -27,35 +27,7 @@ os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 def main() -> None:
     """Handle command line arguments. Entrypoint for this script."""
     parser = argparse.ArgumentParser(description="Predict midi from audio.")
-    parser.add_argument("output_dir", type=str, help="directory to save outputs")
     parser.add_argument("audio_paths", type=str, nargs="+", help="Space separated paths to the input audio files.")
-    parser.add_argument(
-        "--model_path",
-        type=str,
-        default=ICASSP_2022_MODEL_PATH,
-        help="path to the saved model directory. Defaults to a ICASSP 2022 model",
-    )
-    parser.add_argument(
-        "--save-midi",
-        action="store_true",
-        default=True,
-        help="Create a MIDI file.",
-    )
-    parser.add_argument(
-        "--sonify-midi",
-        action="store_true",
-        help="Create an audio .wav file which sonifies the MIDI outputs.",
-    )
-    parser.add_argument(
-        "--save-model-outputs",
-        action="store_true",
-        help="Save the raw model output as an npz file.",
-    )
-    parser.add_argument(
-        "--save-note-events",
-        action="store_true",
-        help="Save the predicted note events as a csv file.",
-    )
     parser.add_argument(
         "--onset-threshold",
         type=float,
@@ -92,7 +64,6 @@ def main() -> None:
         help="Allow overlapping notes in midi file to have pitch bends. Note: this will map each "
         "pitch to its own instrument",
     )
-    parser.add_argument("--debug-file", default=None, help="Optional file for debug output for inference.")
     parser.add_argument("--no-melodia", default=False, action="store_true", help="Skip the melodia trick.")
     args = parser.parse_args()
 
@@ -100,17 +71,10 @@ def main() -> None:
     # this import is here so that the help messages print faster
     from basic_pitch.inference import predict_and_save
 
-    output_dir = args.output_dir
     audio_path_list = args.audio_paths
 
     predict_and_save(
         audio_path_list,
-        output_dir,
-        args.save_midi,
-        args.sonify_midi,
-        args.save_model_outputs,
-        args.save_note_events,
-        args.model_path,
         args.onset_threshold,
         args.frame_threshold,
         args.minimum_note_length,
@@ -118,7 +82,6 @@ def main() -> None:
         args.maximum_frequency,
         args.multiple_pitch_bends,
         not args.no_melodia,
-        args.debug_file if args.debug_file else None,
     )
 
     print("\n✨ Done ✨\n")

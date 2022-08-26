@@ -117,7 +117,6 @@ def run_inference(
     Args:
         audio_path: The audio to run inference on.
         model: A loaded keras model to run inference with.
-        debug_file: An optional path to output debug data to. Useful for testing/verification.
 
     Returns:
        A dictionary with the notes, onsets and contours from model inference.
@@ -158,7 +157,6 @@ def predict(
         maximum_freq: Maximum allowed output frequency, in Hz. If None, all frequencies are used.
         multiple_pitch_bends: If True, allow overlapping notes in midi file to have pitch bends.
         melodia_trick: Use the melodia post-processing step.
-        debug_file: An optional path to output debug data to. Useful for testing/verification.
     Returns:
         The model output, midi data and note events from a single prediction
     """
@@ -190,12 +188,6 @@ def predict(
 
 def predict_and_save(
     audio_path_list: Sequence[str],
-    output_directory: str,
-    save_midi: bool,
-    sonify_midi: bool,
-    save_model_outputs: bool,
-    save_notes: bool,
-    model_path: str = ICASSP_2022_MODEL_PATH,
     onset_threshold: float = 0.5,
     frame_threshold: float = 0.3,
     minimum_note_length: float = 58,
@@ -208,12 +200,6 @@ def predict_and_save(
 
     Args:
         audio_path_list: List of file paths for the audio to run inference on.
-        output_directory: Directory to output MIDI and all other outputs derived from the model to.
-        save_midi: True to save midi.
-        sonify_midi: Whether or not to render audio from the MIDI and output it to a file.
-        save_model_outputs: True to save contours, onsets and notes from the model prediction.
-        save_notes: True to save note events.
-        model_path: Path to load the Keras saved model from. Can be local or on GCS.
         onset_threshold: Minimum energy required for an onset to be considered present.
         frame_threshold: Minimum energy requirement for a frame to be considered present.
         minimum_note_length: The minimum allowed note length in frames.
@@ -221,9 +207,8 @@ def predict_and_save(
         maximum_freq: Maximum allowed output frequency, in Hz. If None, all frequencies are used.
         multiple_pitch_bends: If True, allow overlapping notes in midi file to have pitch bends.
         melodia_trick: Use the melodia post-processing step.
-        debug_file: An optional path to output debug data to. Useful for testing/verification.
     """
-    model = saved_model.load(str(model_path))
+    model = saved_model.load(ICASSP_2022_MODEL_PATH)
 
     for audio_path in audio_path_list:
         try:

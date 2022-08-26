@@ -33,7 +33,6 @@ from basic_pitch.constants import (
 )
 
 MIDI_OFFSET = 21
-SONIFY_FS = 3000
 N_PITCH_BEND_TICKS = 8192
 MAX_FREQ_IDX = 87
 

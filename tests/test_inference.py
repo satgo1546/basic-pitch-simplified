@@ -15,7 +15,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pathlib
+import os
 import unittest
 
 import librosa
@@ -25,12 +25,12 @@ import numpy as np
 from basic_pitch import ICASSP_2022_MODEL_PATH, inference
 from basic_pitch.constants import ANNOTATIONS_N_SEMITONES
 
-RESOURCES_PATH = pathlib.Path(__file__).parent / "resources"
+RESOURCES_PATH = os.path.join(os.path.dirname(__file__), "resources")
 
 
 class TestPredict(unittest.TestCase):
     def test_predict(self) -> None:
-        test_audio_path = RESOURCES_PATH / "vocadito_10.wav"
+        test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         model_output, midi_data, note_events = inference.predict(
             test_audio_path,
             ICASSP_2022_MODEL_PATH,
@@ -46,7 +46,7 @@ class TestPredict(unittest.TestCase):
         assert isinstance(note_events, list)
 
     def test_predict_onset_threshold(self) -> None:
-        test_audio_path = RESOURCES_PATH / "vocadito_10.wav"
+        test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         for onset_threshold in [0, 0.3, 0.8, 1]:
             inference.predict(
                 test_audio_path,
@@ -55,7 +55,7 @@ class TestPredict(unittest.TestCase):
             )
 
     def test_predict_frame_threshold(self) -> None:
-        test_audio_path = RESOURCES_PATH / "vocadito_10.wav"
+        test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         for frame_threshold in [0, 0.3, 0.8, 1]:
             inference.predict(
                 test_audio_path,
@@ -64,7 +64,7 @@ class TestPredict(unittest.TestCase):
             )
 
     def test_predict_min_note_length(self) -> None:
-        test_audio_path = RESOURCES_PATH / "vocadito_10.wav"
+        test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         for minimum_note_length in [10, 100, 1000]:
             _, _, note_events = inference.predict(
                 test_audio_path,
@@ -76,7 +76,7 @@ class TestPredict(unittest.TestCase):
             assert all(note_lengths)
 
     def test_predict_min_freq(self) -> None:
-        test_audio_path = RESOURCES_PATH / "vocadito_10.wav"
+        test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         for minimum_frequency in [40, 80, 200, 2000]:
             _, _, note_events = inference.predict(
                 test_audio_path,
@@ -88,7 +88,7 @@ class TestPredict(unittest.TestCase):
             assert all(note_pitch)
 
     def test_predict_max_freq(self) -> None:
-        test_audio_path = RESOURCES_PATH / "vocadito_10.wav"
+        test_audio_path = os.path.join(RESOURCES_PATH, "vocadito_10.wav")
         for maximum_frequency in [40, 80, 200, 2000]:
             _, _, note_events = inference.predict(
                 test_audio_path,

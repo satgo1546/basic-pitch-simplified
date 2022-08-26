@@ -15,20 +15,15 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import pathlib
 from collections import defaultdict
 from typing import DefaultDict, Dict, List, Optional, Tuple, Union
-import mir_eval
 import librosa
-import resampy
 import numpy as np
 import pretty_midi
 import scipy
-from scipy.io import wavfile
 
 from basic_pitch.constants import (
     AUDIO_SAMPLE_RATE,
-    ANNOTATIONS_N_SEMITONES,
     ANNOTATIONS_BASE_FREQUENCY,
     AUDIO_N_SAMPLES,
     ANNOT_N_FRAMES,
@@ -104,54 +99,6 @@ def model_output_to_notes(
     ]
 
     return note_events_to_midi(estimated_notes_time_seconds, multiple_pitch_bends), estimated_notes_time_seconds
-
-
-def sonify_midi(midi: pretty_midi.PrettyMIDI, save_path: Union[pathlib.Path, str]) -> None:
-    """Sonify a pretty_midi midi object and save to a file.
-
-    Args:
-        midi: A pretty_midi.PrettyMIDI object that will be sonified.
-        save_path: Where to save the sonified midi.
-    """
-    y = midi.synthesize(44100)
-    wavfile.write(save_path, 44100, y)
-
-
-def sonify_salience(
-    gram: np.array, semitone_resolution: float, save_path: Optional[str] = None, thresh: float = 0.2
-) -> Tuple[np.array, int]:
-    """Sonify a salience matrix.
-
-    Args:
-        gram: A matrix of pitch salience values with range 0-1, with shape (n_freqs, n_times).
-            The frequencies are logarithmically spaced.
-        semitone_resolution: The number of bins per semitone in gram.
-        save_path: Optional location to save the sonified salience.
-        thresh: Salience values below thresh will not be sonified. Used to increase the speed of this function.
-
-    Returns:
-        A tuple of the sonified salience as an audio signal and the associated sample rate.
-    """
-    freqs = librosa.core.cqt_frequencies(
-        n_bins=ANNOTATIONS_N_SEMITONES * semitone_resolution,
-        fmin=ANNOTATIONS_BASE_FREQUENCY,
-        bins_per_octave=12 * semitone_resolution,
-    )
-    # this function is slow - for speed, only sonify frequencies below
-    # sonify_fs/2 Hz (e.g. 1000 Hz)
-    max_freq_idx = np.where(freqs > SONIFY_FS / 2)[0][0]
-    times = librosa.core.frames_to_time(
-        np.arange(gram.shape[1]),
-        sr=AUDIO_SAMPLE_RATE,
-        hop_length=AUDIO_N_SAMPLES / ANNOT_N_FRAMES,  # THIS IS THE CORRECT HOP!!
-    )
-    gram[gram < thresh] = 0
-    y = mir_eval.sonify.time_frequency(gram[:max_freq_idx, :], freqs[:max_freq_idx], times, fs=SONIFY_FS)
-    if save_path:
-        y_resamp = resampy.resample(y, SONIFY_FS, 44100)
-        wavfile.write(save_path, 44100, y_resamp)
-
-    return y, SONIFY_FS
 
 
 def midi_pitch_to_contour_bin(pitch_midi: int) -> np.array:

@@ -17,7 +17,6 @@
 
 import argparse
 import os
-import pathlib
 
 from basic_pitch import ICASSP_2022_MODEL_PATH
 
@@ -101,8 +100,8 @@ def main() -> None:
     # this import is here so that the help messages print faster
     from basic_pitch.inference import predict_and_save
 
-    output_dir = pathlib.Path(args.output_dir)
-    audio_path_list = [pathlib.Path(audio_path) for audio_path in args.audio_paths]
+    output_dir = args.output_dir
+    audio_path_list = args.audio_paths
 
     predict_and_save(
         audio_path_list,
@@ -111,7 +110,7 @@ def main() -> None:
         args.sonify_midi,
         args.save_model_outputs,
         args.save_note_events,
-        pathlib.Path(args.model_path),
+        args.model_path,
         args.onset_threshold,
         args.frame_threshold,
         args.minimum_note_length,
@@ -119,7 +118,7 @@ def main() -> None:
         args.maximum_frequency,
         args.multiple_pitch_bends,
         not args.no_melodia,
-        pathlib.Path(args.debug_file) if args.debug_file else None,
+        args.debug_file if args.debug_file else None,
     )
 
     print("\n✨ Done ✨\n")

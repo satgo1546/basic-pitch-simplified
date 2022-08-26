@@ -15,10 +15,6 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-import csv
-import enum
-import os
-import pathlib
 from typing import Dict, List, Optional, Sequence, Tuple, Union
 
 from tensorflow import Tensor, signal, keras, saved_model
@@ -63,7 +59,7 @@ def window_audio_file(audio_original: Tensor, hop_size: int) -> Tuple[Tensor, Li
 
 
 def get_audio_input(
-    audio_path: Union[pathlib.Path, str], overlap_len: int, hop_size: int
+    audio_path: str, overlap_len: int, hop_size: int
 ) -> Tuple[Tensor, List[Dict[str, int]], int]:
     """
     Read wave file (as mono), pad appropriately, and return as
@@ -79,7 +75,7 @@ def get_audio_input(
     """
     assert overlap_len % 2 == 0, "overlap_length must be even, got {}".format(overlap_len)
 
-    audio_original, _ = librosa.load(str(audio_path), sr=AUDIO_SAMPLE_RATE, mono=True)
+    audio_original, _ = librosa.load(audio_path, sr=AUDIO_SAMPLE_RATE, mono=True)
 
     original_length = audio_original.shape[0]
     audio_original = np.concatenate([np.zeros((int(overlap_len / 2),), dtype=np.float32), audio_original])
@@ -114,7 +110,7 @@ def unwrap_output(output: Tensor, audio_original_length: int, n_overlapping_fram
 
 
 def run_inference(
-    audio_path: Union[pathlib.Path, str], model: keras.Model, debug_file: Optional[pathlib.Path] = None
+    audio_path: str, model: keras.Model
 ) -> Dict[str, np.array]:
     """Run the model on the input audio path.
 
@@ -140,8 +136,8 @@ def run_inference(
 
 
 def predict(
-    audio_path: Union[pathlib.Path, str],
-    model_or_model_path: Union[keras.Model, pathlib.Path, str] = ICASSP_2022_MODEL_PATH,
+    audio_path: str,
+    model_or_model_path: Union[keras.Model, str] = ICASSP_2022_MODEL_PATH,
     onset_threshold: float = 0.5,
     frame_threshold: float = 0.3,
     minimum_note_length: float = 58,
@@ -149,7 +145,6 @@ def predict(
     maximum_frequency: Optional[float] = None,
     multiple_pitch_bends: bool = False,
     melodia_trick: bool = True,
-    debug_file: Optional[pathlib.Path] = None,
 ) -> Tuple[Dict[str, np.array], pretty_midi.PrettyMIDI, List[Tuple[float, float, int, float, Optional[List[int]]]]]:
     """Run a single prediction.
 
@@ -171,12 +166,12 @@ def predict(
     # It's convenient to be able to pass in a keras saved model so if
     # someone wants to place this function in a loop,
     # the model doesn't have to be reloaded every function call
-    if isinstance(model_or_model_path, (pathlib.Path, str)):
+    if isinstance(model_or_model_path, str):
         model = saved_model.load(str(model_or_model_path))
     else:
         model = model_or_model_path
 
-    model_output = run_inference(audio_path, model, debug_file)
+    model_output = run_inference(audio_path, model)
 
     min_note_len = int(np.round(minimum_note_length / 1000 * (AUDIO_SAMPLE_RATE / FFT_HOP)))
     midi_data, note_events = infer.model_output_to_notes(
@@ -194,13 +189,13 @@ def predict(
 
 
 def predict_and_save(
-    audio_path_list: Sequence[Union[pathlib.Path, str]],
-    output_directory: Union[pathlib.Path, str],
+    audio_path_list: Sequence[str],
+    output_directory: str,
     save_midi: bool,
     sonify_midi: bool,
     save_model_outputs: bool,
     save_notes: bool,
-    model_path: Union[pathlib.Path, str] = ICASSP_2022_MODEL_PATH,
+    model_path: str = ICASSP_2022_MODEL_PATH,
     onset_threshold: float = 0.5,
     frame_threshold: float = 0.3,
     minimum_note_length: float = 58,
@@ -208,7 +203,6 @@ def predict_and_save(
     maximum_frequency: Optional[float] = None,
     multiple_pitch_bends: bool = False,
     melodia_trick: bool = True,
-    debug_file: Optional[pathlib.Path] = None,
 ) -> None:
     """Make a prediction and save the results to file.
 
@@ -234,7 +228,7 @@ def predict_and_save(
     for audio_path in audio_path_list:
         try:
             model_output, midi_data, note_events = predict(
-                pathlib.Path(audio_path),
+                audio_path,
                 model,
                 onset_threshold,
                 frame_threshold,
@@ -243,7 +237,6 @@ def predict_and_save(
                 maximum_frequency,
                 multiple_pitch_bends,
                 melodia_trick,
-                debug_file,
             )
 
             midi_data.write("output.mid")

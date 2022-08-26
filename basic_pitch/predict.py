@@ -18,8 +18,6 @@
 import argparse
 import os
 
-from basic_pitch import ICASSP_2022_MODEL_PATH
-
 
 os.environ["TF_CPP_MIN_LOG_LEVEL"] = "3"
 

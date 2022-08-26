@@ -23,7 +23,7 @@ import pretty_midi
 import numpy as np
 
 from basic_pitch import inference
-from basic_pitch.constants import ANNOTATIONS_N_SEMITONES
+from basic_pitch import ANNOTATIONS_N_SEMITONES
 
 RESOURCES_PATH = os.path.join(os.path.dirname(__file__), "resources")
 

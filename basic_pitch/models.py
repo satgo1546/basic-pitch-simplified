@@ -20,7 +20,7 @@ import numpy as np
 import tensorflow as tf
 
 from basic_pitch import nn
-from basic_pitch.constants import (
+from basic_pitch import (
     ANNOTATIONS_BASE_FREQUENCY,
     ANNOTATIONS_N_SEMITONES,
     AUDIO_N_SAMPLES,

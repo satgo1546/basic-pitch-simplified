@@ -22,7 +22,7 @@ import numpy as np
 import pretty_midi
 import scipy
 
-from basic_pitch.constants import (
+from basic_pitch import (
     AUDIO_SAMPLE_RATE,
     ANNOTATIONS_BASE_FREQUENCY,
     AUDIO_N_SAMPLES,

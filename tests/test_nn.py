@@ -22,7 +22,7 @@ import numpy as np
 import tensorflow as tf
 
 from basic_pitch import models, nn
-from basic_pitch.constants import (
+from basic_pitch import (
     ANNOT_N_FRAMES,
     ANNOTATIONS_N_SEMITONES,
     AUDIO_N_SAMPLES,

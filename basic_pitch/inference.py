@@ -15,20 +15,21 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-from typing import Dict, List, Optional, Sequence, Tuple, Union
+import os
+from typing import Dict, List, Optional, Sequence, Tuple
 
-from tensorflow import Tensor, signal, keras, saved_model
+from tensorflow import Tensor, signal, keras
 import numpy as np
 import librosa
 import pretty_midi
 
-from basic_pitch.constants import (
+from basic_pitch import (
     AUDIO_SAMPLE_RATE,
     AUDIO_N_SAMPLES,
     ANNOTATIONS_FPS,
     FFT_HOP,
 )
-from basic_pitch import ICASSP_2022_MODEL_PATH, note_creation as infer
+from basic_pitch import note_creation as infer
 import basic_pitch.models
 
 
@@ -161,7 +162,7 @@ def predict(
         The model output, midi data and note events from a single prediction
     """
     model = basic_pitch.models.model()
-    model.load_weights(ICASSP_2022_MODEL_PATH)
+    model.load_weights(os.path.join(os.path.dirname(__file__), "nmp"))
     model_output = run_inference(audio_path, model)
 
     min_note_len = int(np.round(minimum_note_length / 1000 * (AUDIO_SAMPLE_RATE / FFT_HOP)))

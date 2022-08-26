@@ -211,19 +211,16 @@ def predict_and_save(
     model = saved_model.load(ICASSP_2022_MODEL_PATH)
 
     for audio_path in audio_path_list:
-        try:
-            model_output, midi_data, note_events = predict(
-                audio_path,
-                model,
-                onset_threshold,
-                frame_threshold,
-                minimum_note_length,
-                minimum_frequency,
-                maximum_frequency,
-                multiple_pitch_bends,
-                melodia_trick,
-            )
+        model_output, midi_data, note_events = predict(
+            audio_path,
+            model,
+            onset_threshold,
+            frame_threshold,
+            minimum_note_length,
+            minimum_frequency,
+            maximum_frequency,
+            multiple_pitch_bends,
+            melodia_trick,
+        )
 
-            midi_data.write("output.mid")
-        except Exception as e:
-            print(e)
+        midi_data.write("output.mid")

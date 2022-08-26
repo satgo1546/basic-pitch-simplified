@@ -143,5 +143,6 @@ cython_debug/
 # pyenv
 .python-version
 
-# program output
+# program IO
+input.wav
 output.mid

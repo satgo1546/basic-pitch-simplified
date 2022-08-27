@@ -1004,7 +1004,7 @@ def output_to_notes_polyphonic(
     if infer_onsets:
         onsets = get_infered_onsets(onsets, frames)
 
-    peak_thresh_mat = np.zeros(onsets.shape)
+    peak_thresh_mat = np.zeros_like(onsets)
     peaks = scipy.signal.argrelmax(onsets, axis=0)
     peak_thresh_mat[peaks] = onsets[peaks]
 
@@ -1012,8 +1012,7 @@ def output_to_notes_polyphonic(
     onset_time_idx = onset_idx[0][::-1]  # sort to go backwards in time
     onset_freq_idx = onset_idx[1][::-1]  # sort to go backwards in time
 
-    remaining_energy = np.zeros(frames.shape)
-    remaining_energy[:, :] = frames[:, :]
+    remaining_energy = frames >= frame_thresh
 
     # loop over onsets
     note_events = []
@@ -1026,10 +1025,10 @@ def output_to_notes_polyphonic(
         i = note_start_idx + 1
         k = 0  # number of frames since energy dropped below threshold
         while i < n_frames - 1 and k < energy_tol:
-            if remaining_energy[i, freq_idx] < frame_thresh:
-                k += 1
-            else:
+            if remaining_energy[i, freq_idx]:
                 k = 0
+            else:
+                k += 1
             i += 1
 
         i -= k  # go back to frame above threshold
@@ -1055,21 +1054,18 @@ def output_to_notes_polyphonic(
             )
         )
 
-    energy_shape = remaining_energy.shape
-
-    while np.max(remaining_energy) > frame_thresh:
-        i_mid, freq_idx = np.unravel_index(np.argmax(remaining_energy), energy_shape)
-        remaining_energy[i_mid, freq_idx] = 0
+    while np.any(remaining_energy):
+        i_start, freq_idx = np.unravel_index(np.argmax(remaining_energy), remaining_energy.shape)
+        remaining_energy[i_start, freq_idx] = 0
 
         # forward pass
-        i = i_mid + 1
+        i = i_start + 1
         k = 0
         while i < n_frames - 1 and k < energy_tol:
-
-            if remaining_energy[i, freq_idx] < frame_thresh:
-                k += 1
-            else:
+            if remaining_energy[i, freq_idx]:
                 k = 0
+            else:
+                k += 1
 
             remaining_energy[i, freq_idx] = 0
             if freq_idx < MAX_FREQ_IDX:
@@ -1081,25 +1077,6 @@ def output_to_notes_polyphonic(
 
         i_end = i - 1 - k  # go back to frame above threshold
 
-        # backward pass
-        i = i_mid - 1
-        k = 0
-        while i > 0 and k < energy_tol:
-
-            if remaining_energy[i, freq_idx] < frame_thresh:
-                k += 1
-            else:
-                k = 0
-
-            remaining_energy[i, freq_idx] = 0
-            if freq_idx < MAX_FREQ_IDX:
-                remaining_energy[i, freq_idx + 1] = 0
-            if freq_idx > 0:
-                remaining_energy[i, freq_idx - 1] = 0
-
-            i -= 1
-
-        i_start = i + 1 + k  # go back to frame above threshold
         assert i_start >= 0, "{}".format(i_start)
         assert i_end < n_frames
 

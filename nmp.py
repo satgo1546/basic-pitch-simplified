@@ -411,69 +411,6 @@ def get_model() -> tf.keras.Model:
     return tf.keras.Model(inputs=inputs, outputs=outputs)
 
 
-def window_audio_file(audio_original: tf.Tensor, hop_size: int) -> Tuple[tf.Tensor, List[Dict[str, int]]]:
-    """
-    Pad appropriately an audio file, and return as
-    windowed signal, with window length = AUDIO_N_SAMPLES
-
-    Returns:
-        audio_windowed: tensor with shape (n_windows, AUDIO_N_SAMPLES, 1)
-            audio windowed into fixed length chunks
-        window_times: list of {'start':.., 'end':...} objects (times in seconds)
-
-    """
-    audio_windowed = tf.expand_dims(
-        tf.signal.frame(audio_original, AUDIO_N_SAMPLES, hop_size, pad_end=True, pad_value=0),
-        axis=-1,
-    )
-    window_times = [
-        {
-            "start": t_start,
-            "end": t_start + (AUDIO_N_SAMPLES / AUDIO_SAMPLE_RATE),
-        }
-        for t_start in np.arange(audio_windowed.shape[0]) * hop_size / AUDIO_SAMPLE_RATE
-    ]
-    return audio_windowed, window_times
-
-
-def get_audio_input(
-    audio_path: str, overlap_len: int, hop_size: int
-) -> Tuple[tf.Tensor, List[Dict[str, int]], int]:
-    """
-    Read wave file (as mono), pad appropriately, and return as
-    windowed signal, with window length = AUDIO_N_SAMPLES
-
-    Returns:
-        audio_windowed: tensor with shape (n_windows, AUDIO_N_SAMPLES, 1)
-            audio windowed into fixed length chunks
-        window_times: list of {'start':.., 'end':...} objects (times in seconds)
-        audio_original_length: int
-            length of original audio file, in frames, BEFORE padding.
-
-    """
-    assert overlap_len % 2 == 0, "overlap_length must be even, got {}".format(overlap_len)
-
-    audio_original_samplerate, audio_original = scipy.io.wavfile.read(audio_path)
-    audio_original = scipy.signal.resample(
-        (
-            np.float32(audio_original)
-            if audio_original.ndim == 1
-            else np.mean(audio_original, axis=1, dtype=np.float32)
-        )
-        / (
-            np.iinfo(audio_original.dtype).max
-            if np.issubdtype(audio_original.dtype, np.integer)
-            else 1
-        ),
-        int(len(audio_original) * AUDIO_SAMPLE_RATE / audio_original_samplerate),
-        window=("kaiser", 12.984585247040012),
-    )
-    audio_original_length = len(audio_original)
-    audio_original = np.pad(audio_original, (overlap_len // 2, 0))
-    audio_windowed, window_times = window_audio_file(audio_original, hop_size)
-    return audio_windowed, window_times, audio_original_length
-
-
 def unwrap_output(output: tf.Tensor, audio_original_length: int, n_overlapping_frames: int) -> NDArray:
     """Unwrap batched model predictions to a single matrix.
 
@@ -500,31 +437,6 @@ def unwrap_output(output: tf.Tensor, audio_original_length: int, n_overlapping_f
     return unwrapped_output[:n_output_frames_original, :]  # trim to original audio length
 
 
-def run_inference(
-    audio_path: str, model: tf.keras.Model
-) -> Dict[str, NDArray]:
-    """Run the model on the input audio path.
-
-    Args:
-        audio_path: The audio to run inference on.
-        model: A loaded keras model to run inference with.
-
-    Returns:
-       A dictionary with the notes, onsets and contours from model inference.
-    """
-    # overlap 30 frames
-    n_overlapping_frames = 30
-    overlap_len = n_overlapping_frames * FFT_HOP
-    hop_size = AUDIO_N_SAMPLES - overlap_len
-
-    audio_windowed, _, audio_original_length = get_audio_input(audio_path, overlap_len, hop_size)
-
-    output = model(audio_windowed)
-    unwrapped_output = {k: unwrap_output(output[k], audio_original_length, n_overlapping_frames) for k in output}
-
-    return unwrapped_output
-
-
 def predict(
     audio_path: str,
     onset_threshold: float = 0.5,
@@ -548,9 +460,66 @@ def predict(
     """
     model = get_model()
     model.load_weights(os.path.join(os.path.dirname(__file__), "nmp"))
-    model_output = run_inference(audio_path, model)
 
-    min_note_len = int(np.round(minimum_note_length / 1000 * (AUDIO_SAMPLE_RATE / FFT_HOP)))
+    """Run the model on the input audio path.
+
+        model: A loaded keras model to run inference with.
+
+    Returns:
+       A dictionary with the notes, onsets and contours from model inference.
+    """
+    # overlap 30 frames
+    n_overlapping_frames = 30
+    overlap_len = n_overlapping_frames * FFT_HOP
+    hop_size = AUDIO_N_SAMPLES - overlap_len
+
+    """
+    Read wave file (as mono), pad appropriately, and return as
+    windowed signal, with window length = AUDIO_N_SAMPLES
+
+        audio_original_length: int
+            length of original audio file, in frames, BEFORE padding.
+    """
+    assert overlap_len % 2 == 0, "overlap_length must be even, got {}".format(overlap_len)
+
+    audio_original_samplerate, audio_original = scipy.io.wavfile.read(audio_path)
+    audio_original = scipy.signal.resample(
+        (
+            np.float32(audio_original)
+            if audio_original.ndim == 1
+            else np.mean(audio_original, axis=1, dtype=np.float32)
+        )
+        / (
+            np.iinfo(audio_original.dtype).max
+            if np.issubdtype(audio_original.dtype, np.integer)
+            else 1
+        ),
+        int(len(audio_original) * AUDIO_SAMPLE_RATE / audio_original_samplerate),
+        window=("kaiser", 12.984585247040012),
+    )
+    audio_original_length = len(audio_original)
+    """
+    Pad appropriately an audio file, and return as
+    windowed signal, with window length = AUDIO_N_SAMPLES
+
+        audio_windowed: tensor with shape (n_windows, AUDIO_N_SAMPLES, 1)
+            audio windowed into fixed length chunks
+    """
+    audio_windowed = tf.expand_dims(
+        tf.signal.frame(
+            np.pad(audio_original, (overlap_len // 2, 0)),
+            AUDIO_N_SAMPLES,
+            hop_size,
+            pad_end=True,
+            pad_value=0,
+        ),
+        axis=-1,
+    )
+
+    model_output = model(audio_windowed)
+    model_output = {k: unwrap_output(model_output[k], audio_original_length, n_overlapping_frames) for k in model_output}
+
+    min_note_len = round(minimum_note_length / 1000 * AUDIO_SAMPLE_RATE / FFT_HOP)
     midi_data, note_events = model_output_to_notes(
         model_output,
         onset_thresh=onset_threshold,

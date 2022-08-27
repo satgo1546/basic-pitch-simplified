@@ -319,56 +319,6 @@ class CQT(tf.keras.layers.Layer):
         return tf.transpose(tf.norm(CQT, axis=-1), [0, 2, 1])
 
 
-class HarmonicStacking(tf.keras.layers.Layer):
-    """Harmonic stacking layer
-
-    Input shape: (n_batch, n_times, n_freqs, 1)
-    Output shape: (n_batch, n_times, n_output_freqs, len(harmonics))
-
-    n_freqs should be much larger than n_output_freqs so that information from the upper
-    harmonics is captured.
-
-    Attributes:
-        bins_per_semitone: The number of bins per semitone of the input CQT
-        harmonics: List of harmonics to use. Should be positive numbers.
-        shifts: A list containing the number of bins to shift in frequency for each harmonic
-        n_output_freqs: The number of frequency bins in each harmonic layer.
-    """
-
-    def __init__(
-        self, bins_per_semitone: int, harmonics: List[float], n_output_freqs: int
-    ):
-        """Downsample frequency by stride, upsample channels by 4."""
-        super().__init__(trainable=False)
-        self.bins_per_semitone = bins_per_semitone
-        self.harmonics = harmonics
-        self.shifts = [
-            round(12 * self.bins_per_semitone * np.log2(h)) for h in self.harmonics
-        ]
-        self.n_output_freqs = n_output_freqs
-
-    def call(self, x: tf.Tensor) -> tf.Tensor:
-        # (n_batch, n_times, n_freqs, 1)
-        tf.debugging.assert_equal(tf.shape(x).shape, 4)
-        channels = []
-        for shift in self.shifts:
-            if shift == 0:
-                padded = x
-            elif shift > 0:
-                paddings = tf.constant([[0, 0], [0, 0], [0, shift], [0, 0]])
-                padded = tf.pad(x[:, :, shift:, :], paddings)
-            elif shift < 0:
-                paddings = tf.constant([[0, 0], [0, 0], [-shift, 0], [0, 0]])
-                padded = tf.pad(x[:, :, :shift, :], paddings)
-            else:
-                raise ValueError
-
-            channels.append(padded)
-        x = tf.concat(channels, axis=-1)
-        x = x[:, :, : self.n_output_freqs, :]  # return only the first n_output_freqs frequency channels
-        return x
-
-
 def get_model() -> tf.keras.Model:
     """Basic Pitch's model implementation.
     """
@@ -416,11 +366,37 @@ def get_model() -> tf.keras.Model:
     # Apply batch normalization after computing the CQT.
     x = tf.keras.layers.BatchNormalization()(x)
 
-    x = HarmonicStacking(
-        CONTOURS_BINS_PER_SEMITONE,
-        [0.5] + list(range(1, n_harmonics)),
-        N_FREQ_BINS_CONTOURS,
-    )(x)
+    """Harmonic stacking layer
+
+    Input shape: (n_batch, n_times, n_freqs, 1)
+    Output shape: (n_batch, n_times, n_output_freqs, len(harmonics))
+
+    n_freqs should be much larger than n_output_freqs so that information from the upper
+    harmonics is captured.
+
+    Attributes:
+        bins_per_semitone: The number of bins per semitone of the input CQT
+        harmonics: List of harmonics to use. Should be positive numbers.
+        shifts: A list containing the number of bins to shift in frequency for each harmonic
+        n_output_freqs: The number of frequency bins in each harmonic layer.
+    """
+    tf.debugging.assert_equal(tf.shape(x).shape, 4)  # (n_batch, n_times, n_freqs, 1)
+    channels = []
+    for shift in [
+        round(12 * CONTOURS_BINS_PER_SEMITONE * np.log2(h))
+        for h in [0.5] + list(range(1, n_harmonics))
+    ]:
+        if shift == 0:
+            padded = x
+        elif shift > 0:
+            paddings = tf.constant([[0, 0], [0, 0], [0, shift], [0, 0]])
+            padded = tf.pad(x[:, :, shift:, :], paddings)
+        elif shift < 0:
+            paddings = tf.constant([[0, 0], [0, 0], [-shift, 0], [0, 0]])
+            padded = tf.pad(x[:, :, :shift, :], paddings)
+        channels.append(padded)
+    x = tf.concat(channels, axis=-1)
+    x = x[:, :, : N_FREQ_BINS_CONTOURS, :]  # return only the first n_output_freqs frequency channels
 
     # contour layers - fully convolutional
     x_contours = tf.keras.layers.Conv2D(32, (5, 5), padding="same")(x)

@@ -43,11 +43,11 @@ N_PITCH_BEND_TICKS = 8192
 MAX_FREQ_IDX = 87
 
 def midi_to_hz(notes: ArrayLike):
-    return 440 * (2 ** ((np.asanyarray(notes) - 69) / 12))
+    return 440 * 2 ** ((notes - 69) / 12)
 
 
 def hz_to_midi(frequencies: ArrayLike):
-    return 12 * (np.log2(np.asanyarray(frequencies)) - np.log2(440)) + 69
+    return 12 * (np.log2(frequencies) - np.log2(440)) + 69
 
 
 def create_lowpass_filter(

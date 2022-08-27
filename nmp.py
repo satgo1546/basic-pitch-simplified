@@ -92,7 +92,7 @@ def get_cqt_complex(
     cqt_kernels_real: tf.Tensor,
     cqt_kernels_imag: tf.Tensor,
     hop_length: int,
-    padding: tf.keras.layers.Layer,
+    padding: int,
 ) -> tf.Tensor:
     """Multiplying the STFT result with the cqt_kernel, check out the 1992 CQT paper [1]
     for how to multiple the STFT result with the CQT kernel
@@ -100,7 +100,8 @@ def get_cqt_complex(
     a constant Q transform.” (1992)."""
 
     try:
-        x = padding(x)  # When center is True, we need padding at the beginning and ending
+        # When center is True, the STFT window will be put in the middle, and paddings at the beginning and ending are required.
+        x = tf.pad(x, [[0, 0], [0, 0], [padding, padding]], "REFLECT")
     except Exception:
         warnings.warn(
             f"\ninput size = {x.shape}\tkernel size = {cqt_kernels_real.shape[-1]}\n"
@@ -151,19 +152,6 @@ def downsampling_by_n(x: tf.Tensor, filter_kernel: tf.Tensor, n: float) -> tf.Te
     result_nwc = tf.nn.conv1d(padded_nwc, filter_kernel[:, None, None], padding="VALID", stride=n)
     result_ncw = tf.transpose(result_nwc, [0, 2, 1])
     return result_ncw
-
-
-class ReflectionPad1D(tf.keras.layers.Layer):
-    """Replica of Torch's nn.ReflectionPad1D in TF.
-    """
-
-    def __init__(self, padding: Union[int, Tuple[int]] = 1, **kwargs: Any):
-        self.padding = padding
-        self.input_spec = [tf.keras.layers.InputSpec(ndim=3)]
-        super(ReflectionPad1D, self).__init__(**kwargs)
-
-    def call(self, x: tf.Tensor) -> tf.Tensor:
-        return tf.pad(x, [[0, 0], [0, 0], [self.padding, self.padding]], "REFLECT")
 
 
 class CQT(tf.keras.layers.Layer):
@@ -321,10 +309,6 @@ class CQT(tf.keras.layers.Layer):
             self.cqt_kernels_real = tf.Variable(initial_value=self.cqt_kernels_real, trainable=True)
             self.cqt_kernels_imag = tf.Variable(initial_value=self.cqt_kernels_imag, trainable=True)
 
-        # If center==True, the STFT window will be put in the middle, and paddings at the beginning
-        # and ending are required.
-        self.padding = ReflectionPad1D(self.n_fft // 2)
-
         rank = len(input_shape)
         if rank == 2:
             self.reshape_input = lambda x: x[:, None, :]
@@ -341,15 +325,16 @@ class CQT(tf.keras.layers.Layer):
         hop = self.hop_length
 
         # Getting the top octave CQT
-        CQT = get_cqt_complex(x, self.cqt_kernels_real, self.cqt_kernels_imag, hop, self.padding)
-
-        x_down = x  # Preparing a new variable for downsampling
-
-        for _ in range(self.n_octaves - 1):
-            hop = hop // 2
-            x_down = downsampling_by_n(x_down, self.lowpass_filter, 2)
-            CQT1 = get_cqt_complex(x_down, self.cqt_kernels_real, self.cqt_kernels_imag, hop, self.padding)
-            CQT = tf.concat((CQT1, CQT), axis=1)
+        CQTs = []
+        for i in range(self.n_octaves):
+            if i:
+                hop //= 2
+                x = downsampling_by_n(x, self.lowpass_filter, 2)
+            CQTs.insert(
+                0,
+                get_cqt_complex(x, self.cqt_kernels_real, self.cqt_kernels_imag, hop, self.n_fft // 2)
+            )
+        CQT = tf.concat(CQTs, axis=1)
 
         CQT = CQT[:, -self.n_bins :, :]  # Removing unwanted bottom bins
 

@@ -146,14 +146,12 @@ class CQT(tf.keras.layers.Layer):
         n_bins: int = 84,
         bins_per_octave: int = 12,
         basis_norm: int = 1,
-        trainable: bool = False,
     ):
         super().__init__()
 
         self.n_bins = n_bins
         self.bins_per_octave = bins_per_octave
         self.basis_norm = basis_norm
-        self.trainable = trainable
 
     def build(self, input_shape: tf.TensorShape) -> None:
         # This will be used to calculate filter_cutoff and creating CQT kernels
@@ -225,22 +223,8 @@ class CQT(tf.keras.layers.Layer):
         self.cqt_kernels_real = tf.expand_dims(basis.real.astype(self.dtype), 1)
         self.cqt_kernels_imag = tf.expand_dims(basis.imag.astype(self.dtype), 1)
 
-        if self.trainable:
-            self.cqt_kernels_real = tf.Variable(initial_value=self.cqt_kernels_real, trainable=True)
-            self.cqt_kernels_imag = tf.Variable(initial_value=self.cqt_kernels_imag, trainable=True)
-
-        rank = len(input_shape)
-        if rank == 2:
-            self.reshape_input = lambda x: x[:, None, :]
-        elif rank == 1:
-            self.reshape_input = lambda x: x[None, None, :]
-        elif rank == 3:
-            self.reshape_input = lambda x: x
-        else:
-            raise ValueError(f"Input shape must be rank <= 3, found shape {input_shape}")
-
     def call(self, x: tf.Tensor) -> tf.Tensor:
-        x = self.reshape_input(x)  # type: ignore
+        x = x[:, None, :]
 
         hop = FFT_HOP
 

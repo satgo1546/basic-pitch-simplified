@@ -49,37 +49,6 @@ def hz_to_midi(frequencies: ArrayLike):
     return 12 * (np.log2(frequencies) - np.log2(440)) + 69
 
 
-def create_cqt_kernels(
-    Q: float,
-    fs: float,
-    fmin: float,
-    n_bins: int = 84,
-    bins_per_octave: int = 12,
-) -> Tuple[NDArray, int]:
-    """Automatically create CQT kernels in time domain
-    """
-    n_fft = 2 ** math.ceil(np.log2(np.ceil(Q * fs / fmin)))
-    freqs = fmin * 2 ** (np.arange(n_bins) / bins_per_octave)
-    cqt_kernels = np.zeros((n_bins, n_fft), dtype=np.complex64)
-    for k in range(n_bins):
-        freq = freqs[k]
-        _l = math.ceil(Q * fs / freq)
-
-        # Centering the kernels, pad more zeros on RHS
-        start = math.ceil(n_fft / 2 - _l / 2) - _l % 2
-
-        sig = (
-            scipy.signal.get_window("hann", _l, fftbins=True)
-            * np.exp(2j * np.pi * np.r_[-_l // 2 : _l // 2] * freq / fs)
-            / _l
-        )
-
-        # Normalize the CQT kernels like librosa, which uses L1 normalization.
-        cqt_kernels[k, start : start + _l] = sig / np.linalg.norm(sig, 1)
-
-    return cqt_kernels, n_fft
-
-
 class CQT(tf.keras.layers.Layer):
     """This layer calculates the CQT of the input signal.
     Input signal should be in either of the following shapes.
@@ -170,22 +139,28 @@ class CQT(tf.keras.layers.Layer):
         # Adjust the top minium bins.
         fmin_t = fmax_t / 2 ** (1 - 1 / bins_per_octave)
 
-        # Preparing CQT kernels
-        basis, n_fft = create_cqt_kernels(
-            Q,
-            AUDIO_SAMPLE_RATE,
-            fmin_t,
-            n_filters,
-            bins_per_octave,
-        )
+        # Create CQT kernels in frequency domain.
+        n_fft = 2 ** math.ceil(np.log2(np.ceil(Q * AUDIO_SAMPLE_RATE / fmin_t)))
+        cqt_kernels = np.zeros((n_fft, n_filters), dtype=np.complex64)
+        for k in range(n_filters):
+            freq = fmin_t * 2 ** (k / bins_per_octave)
+            _l = math.ceil(Q * AUDIO_SAMPLE_RATE / freq)
+
+            # Centering the kernels, pad more zeros on the right.
+            start = math.ceil(n_fft / 2 - _l / 2) - _l % 2
+
+            sig = (
+                scipy.signal.get_window("hann", _l, fftbins=True)
+                * np.exp(2j * np.pi * np.r_[-_l // 2 : _l // 2] * freq / AUDIO_SAMPLE_RATE)
+                / _l
+            )
+
+            # Normalize the CQT kernels like librosa, which uses L1 normalization.
+            cqt_kernels[start : start + _l, k] = sig / np.linalg.norm(sig, 1)
 
         # NOTE(psobot): this is where the implementation here starts to differ from CQT2010.
 
-        # These cqt_kernel is already in the frequency domain
-        cqt_kernels_real = tf.expand_dims(basis.real, 1)
-        cqt_kernels_imag = tf.expand_dims(basis.imag, 1)
-
-        x = x[:, None, :]
+        x = x[:, tf.newaxis, :]
 
         hop = FFT_HOP
 
@@ -220,7 +195,7 @@ class CQT(tf.keras.layers.Layer):
             CQT_real = tf.transpose(
                 tf.nn.conv1d(
                     tf.transpose(padded, [0, 2, 1]),
-                    tf.transpose(cqt_kernels_real, [2, 1, 0]),
+                    tf.expand_dims(cqt_kernels.real, 1),
                     padding="VALID",
                     stride=hop,
                 ),
@@ -229,7 +204,7 @@ class CQT(tf.keras.layers.Layer):
             CQT_imag = -tf.transpose(
                 tf.nn.conv1d(
                     tf.transpose(padded, [0, 2, 1]),
-                    tf.transpose(cqt_kernels_imag, [2, 1, 0]),
+                    tf.expand_dims(cqt_kernels.imag, 1),
                     padding="VALID",
                     stride=hop,
                 ),

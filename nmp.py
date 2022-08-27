@@ -788,30 +788,19 @@ def get_infered_onsets(onsets: NDArray, frames: NDArray, n_diff: int = 2) -> NDA
 
 
 def constrain_frequency(
-    onsets: NDArray, frames: NDArray, max_freq: Optional[float], min_freq: Optional[float]
-) -> Tuple[NDArray, NDArray]:
+    x: NDArray, max_freq: Optional[float], min_freq: Optional[float]
+):
     """Zero out activations above or below the max/min frequencies
 
     Args:
-        onsets: Onset activation matrix (n_times, n_freqs)
-        frames: Frame activation matrix (n_times, n_freqs)
-        max_freq: The maximum frequency to keep.
-        min_freq: the minimum frequency to keep.
-
-    Returns:
-       The onset and frame activation matrices, with frequencies outside the min and max
-       frequency set to 0.
+        x: Onset/frame activation matrix (n_times, n_freqs)
+        max_freq: The maximum frequency to keep, in Hz.
+        min_freq: the minimum frequency to keep, in Hz.
     """
     if max_freq is not None:
-        max_freq_idx = int(np.round(hz_to_midi(max_freq) - MIDI_OFFSET))
-        onsets[:, max_freq_idx:] = 0
-        frames[:, max_freq_idx:] = 0
+        x[:, round(hz_to_midi(max_freq)) - MIDI_OFFSET :] = 0
     if min_freq is not None:
-        min_freq_idx = int(np.round(hz_to_midi(min_freq) - MIDI_OFFSET))
-        onsets[:, :min_freq_idx] = 0
-        frames[:, :min_freq_idx] = 0
-
-    return onsets, frames
+        x[:, : round(hz_to_midi(min_freq)) - MIDI_OFFSET] = 0
 
 
 def model_frames_to_time(n_frames: int) -> np.ndarray:
@@ -855,7 +844,8 @@ def output_to_notes_polyphonic(
 
     n_frames = frames.shape[0]
 
-    onsets, frames = constrain_frequency(onsets, frames, max_freq, min_freq)
+    constrain_frequency(onsets, max_freq, min_freq)
+    constrain_frequency(frames, max_freq, min_freq)
     # use onsets inferred from frames in addition to the predicted onsets
     if infer_onsets:
         onsets = get_infered_onsets(onsets, frames)

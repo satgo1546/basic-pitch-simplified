@@ -546,7 +546,7 @@ def predict(
 
     # convert minimum_note_length to frames
     min_note_len = round(minimum_note_length / 1000 * AUDIO_SAMPLE_RATE / FFT_HOP)
-    estimated_notes = output_to_notes_polyphonic(
+    note_events = output_to_notes_polyphonic(
         frames,
         onsets,
         onset_thresh=onset_threshold,
@@ -556,19 +556,6 @@ def predict(
         min_freq=minimum_frequency,
         max_freq=maximum_frequency,
     )
-    estimated_notes_with_pitch_bend = get_pitch_bends(contours, estimated_notes)
-    times_s = model_frames_to_time(contours.shape[0])
-    note_events = [
-        (times_s[note[0]], times_s[note[1]], note[2], note[3], note[4]) for note in estimated_notes_with_pitch_bend
-    ]
-    midi_data = note_events_to_midi(note_events)
-
-    return model_output, midi_data, note_events
-
-
-def get_pitch_bends(
-    contours: np.ndarray, note_events: List[Tuple[int, int, int, float]], n_bins_tolerance: int = 25
-) -> List[Tuple[int, int, int, float, Optional[List[int]]]]:
     """Given note events and contours, estimate pitch bends per note.
     Pitch bends are represented as a sequence of evenly spaced midi pitch bend control units.
     The time stamps of each pitch bend can be inferred by computing an evenly spaced grid between
@@ -582,34 +569,32 @@ def get_pitch_bends(
     Returns:
         note events with pitch bends
     """
-    window_length = n_bins_tolerance * 2 + 1
-    freq_gaussian = scipy.signal.gaussian(window_length, std=5)
-    note_events_with_pitch_bends = []
-    for start_idx, end_idx, pitch_midi, amplitude in note_events:
+    times_s = model_frames_to_time(contours.shape[0])
+    n_bins_tolerance = 25
+    freq_gaussian = scipy.signal.gaussian(n_bins_tolerance * 2 + 1, std=5)
+    for i, (start_idx, end_idx, pitch_midi, amplitude) in enumerate(note_events):
         # Convert midi pitch to conrresponding index in contour matrix.
         freq_idx = round(12 * CONTOURS_BINS_PER_SEMITONE * np.log2(midi_to_hz(pitch_midi) / ANNOTATIONS_BASE_FREQUENCY))
-        freq_start_idx = np.max([freq_idx - n_bins_tolerance, 0])
-        freq_end_idx = np.min([N_FREQ_BINS_CONTOURS, freq_idx + n_bins_tolerance + 1])
+        freq_start_idx = max(freq_idx - n_bins_tolerance, 0)
+        freq_end_idx = min(N_FREQ_BINS_CONTOURS, freq_idx + n_bins_tolerance + 1)
 
         pitch_bend_submatrix = (
             contours[start_idx:end_idx, freq_start_idx:freq_end_idx]
             * freq_gaussian[
-                np.max([0, n_bins_tolerance - freq_idx]) : window_length
-                - np.max([0, freq_idx - (N_FREQ_BINS_CONTOURS - n_bins_tolerance - 1)])
+                max(0, n_bins_tolerance - freq_idx) : len(freq_gaussian)
+                - max(0, freq_idx - (N_FREQ_BINS_CONTOURS - n_bins_tolerance - 1))
             ]
         )
-        pb_shift = n_bins_tolerance - np.max([0, n_bins_tolerance - freq_idx])
+        pb_shift = n_bins_tolerance - max(0, n_bins_tolerance - freq_idx)
 
-        bends: Optional[List[int]] = list(
-            np.argmax(pitch_bend_submatrix, axis=1) - pb_shift
-        )  # this is in units of 1/3 semitones
-        note_events_with_pitch_bends.append((start_idx, end_idx, pitch_midi, amplitude, bends))
-    return note_events_with_pitch_bends
-
-
-def note_events_to_midi(
-    note_events_with_pitch_bends: List[Tuple[float, float, int, float, Optional[List[int]]]],
-) -> pretty_midi.PrettyMIDI:
+        note_events[i] = (
+            times_s[start_idx],
+            times_s[end_idx],
+            pitch_midi,
+            amplitude,
+            # this is in units of 1/3 semitones
+            np.argmax(pitch_bend_submatrix, axis=1) - pb_shift,
+        )
     """Create a pretty_midi object from note events
 
     Args:
@@ -618,15 +603,22 @@ def note_events_to_midi(
 
     Returns:
         pretty_midi.PrettyMIDI() object
-
     """
-    mid = pretty_midi.PrettyMIDI()
-    note_events_with_pitch_bends = drop_overlapping_pitch_bends(note_events_with_pitch_bends)
+    midi_data = pretty_midi.PrettyMIDI()
+
+    """Drop pitch bends from any notes that overlap in time with another note"""
+    note_events = sorted(note_events)
+    for i in range(len(note_events) - 1):
+        for j in range(i + 1, len(note_events)):
+            if note_events[j][0] >= note_events[i][1]:  # start j > end i
+                break
+            note_events[i] = note_events[i][:-1] + (None,)  # last field is pitch bend
+            note_events[j] = note_events[j][:-1] + (None,)
 
     instrument = pretty_midi.Instrument(
         pretty_midi.instrument_name_to_program("Electric Piano 1")
     )
-    for start_time, end_time, note_number, amplitude, pitch_bend in note_events_with_pitch_bends:
+    for start_time, end_time, note_number, amplitude, pitch_bend in note_events:
         note = pretty_midi.Note(
             velocity=int(np.round(127 * amplitude)),
             pitch=note_number,
@@ -644,24 +636,9 @@ def note_events_to_midi(
         pitch_bend_midi_ticks[pitch_bend_midi_ticks < -N_PITCH_BEND_TICKS] = -N_PITCH_BEND_TICKS
         for pb_time, pb_midi in zip(pitch_bend_times, pitch_bend_midi_ticks):
             instrument.pitch_bends.append(pretty_midi.PitchBend(pb_midi, pb_time))
-    mid.instruments.append(instrument)
+    midi_data.instruments.append(instrument)
 
-    return mid
-
-
-def drop_overlapping_pitch_bends(
-    note_events_with_pitch_bends: List[Tuple[float, float, int, float, Optional[List[int]]]]
-) -> List[Tuple[float, float, int, float, Optional[List[int]]]]:
-    """Drop pitch bends from any notes that overlap in time with another note"""
-    note_events = sorted(note_events_with_pitch_bends)
-    for i in range(len(note_events) - 1):
-        for j in range(i + 1, len(note_events)):
-            if note_events[j][0] >= note_events[i][1]:  # start j > end i
-                break
-            note_events[i] = note_events[i][:-1] + (None,)  # last field is pitch bend
-            note_events[j] = note_events[j][:-1] + (None,)
-
-    return note_events
+    return model_output, midi_data, note_events
 
 
 def get_infered_onsets(onsets: NDArray, frames: NDArray, n_diff: int = 2) -> NDArray:

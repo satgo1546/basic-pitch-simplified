@@ -411,20 +411,6 @@ class HarmonicStacking(tf.keras.layers.Layer):
         return x
 
 
-class FlattenAudioCh(tf.keras.layers.Layer):
-    """Layer which removes a "channels" dimension of size 1.
-
-    Input shape: (batch, time, 1)
-    Output shape: (batch, time)
-    """
-
-    def call(self, x: tf.Tensor) -> tf.Tensor:
-        """x: (batch, time, ch)"""
-        shapes = tf.keras.backend.int_shape(x)
-        tf.assert_equal(shapes[2], 1)
-        return tf.keras.layers.Reshape([shapes[1]])(x)  # ignore batch size
-
-
 class FlattenFreqCh(tf.keras.layers.Layer):
     """Layer to flatten the frequency channel and make each channel
     part of the frequency dimension.
@@ -457,7 +443,7 @@ def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tens
         math.ceil(12 * np.log2(n_harmonics)) + ANNOTATIONS_N_SEMITONES,
         math.floor(12 * np.log2(0.5 * AUDIO_SAMPLE_RATE / ANNOTATIONS_BASE_FREQUENCY)),
     )
-    x = FlattenAudioCh()(inputs)
+    x = tf.squeeze(inputs, -1)
     x = CQT(
         sr=AUDIO_SAMPLE_RATE,
         hop_length=FFT_HOP,

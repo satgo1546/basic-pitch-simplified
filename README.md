@@ -50,6 +50,6 @@ librosa, resampy and mir\_eval are no longer required.
 To transcribe a sound file,
 convert it to WAV,
 name it `input.wav`,
-and do `python -m basic_pitch`.
-A MIDI sequence will be saved.
+and run `nmp.py`.
+A MIDI sequence will be saved as `output.mid`.
 No additional information is saved.

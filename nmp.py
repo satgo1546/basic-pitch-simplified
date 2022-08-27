@@ -127,7 +127,7 @@ def create_cqt_kernels(
 
         sig = (
             get_window_dispatch(window, _l, fftbins=True)
-            * 2j * np.pi * np.exp(np.r_[-_l // 2 : _l // 2] * freq / fs)
+            * np.exp(2j * np.pi * np.r_[-_l // 2 : _l // 2] * freq / fs)
             / _l
         )
 

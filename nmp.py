@@ -38,6 +38,9 @@ ANNOT_N_FRAMES = ANNOTATIONS_FPS * AUDIO_WINDOW_LENGTH
 # AUDIO_N_SAMPLES is the number of samples in the (clipped) audio that we use as input to the models
 AUDIO_N_SAMPLES = AUDIO_SAMPLE_RATE * AUDIO_WINDOW_LENGTH - FFT_HOP
 
+MIDI_OFFSET = 21
+N_PITCH_BEND_TICKS = 8192
+MAX_FREQ_IDX = 87
 
 def midi_to_hz(notes: ArrayLike):
     return 440 * (2 ** ((np.asanyarray(notes) - 69) / 12))
@@ -571,12 +574,6 @@ class NormalizedLog(tf.keras.layers.Layer):
 
         return tf.reshape(log_power_normalized, tf.shape(inputs))
 
-tfkl = tf.keras.layers
-
-MAX_N_SEMITONES = int(
-    np.floor(12.0 * np.log2(0.5 * AUDIO_SAMPLE_RATE / ANNOTATIONS_BASE_FREQUENCY))
-)
-
 
 def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tensor:
     """Calculate the CQT of the input audio.
@@ -593,11 +590,9 @@ def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tens
     Returns:
         The log-normalized CQT of the input audio.
     """
-    n_semitones = np.min(
-        [
-            int(np.ceil(12.0 * np.log2(n_harmonics)) + ANNOTATIONS_N_SEMITONES),
-            MAX_N_SEMITONES,
-        ]
+    n_semitones = min(
+        math.ceil(12 * np.log2(n_harmonics)) + ANNOTATIONS_N_SEMITONES,
+        math.floor(12 * np.log2(0.5 * AUDIO_SAMPLE_RATE / ANNOTATIONS_BASE_FREQUENCY)),
     )
     x = FlattenAudioCh()(inputs)
     x = CQT(
@@ -610,7 +605,7 @@ def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tens
     x = NormalizedLog()(x)
     x = tf.expand_dims(x, -1)
     if use_batchnorm:
-        x = tfkl.BatchNormalization()(x)
+        x = tf.keras.layers.BatchNormalization()(x)
     return x
 
 
@@ -636,17 +631,17 @@ def get_model() -> tf.keras.Model:
     )(x)
 
     # contour layers - fully convolutional
-    x_contours = tfkl.Conv2D(32, (5, 5), padding="same")(x)
+    x_contours = tf.keras.layers.Conv2D(32, (5, 5), padding="same")(x)
 
-    x_contours = tfkl.BatchNormalization()(x_contours)
-    x_contours = tfkl.ReLU()(x_contours)
+    x_contours = tf.keras.layers.BatchNormalization()(x_contours)
+    x_contours = tf.keras.layers.ReLU()(x_contours)
 
-    x_contours = tfkl.Conv2D(8, (3, 3 * 13), padding="same")(x)
+    x_contours = tf.keras.layers.Conv2D(8, (3, 3 * 13), padding="same")(x)
 
-    x_contours = tfkl.BatchNormalization()(x_contours)
-    x_contours = tfkl.ReLU()(x_contours)
+    x_contours = tf.keras.layers.BatchNormalization()(x_contours)
+    x_contours = tf.keras.layers.ReLU()(x_contours)
 
-    x_contours = tfkl.Conv2D(1, (5, 5), padding="same", activation="sigmoid")(
+    x_contours = tf.keras.layers.Conv2D(1, (5, 5), padding="same", activation="sigmoid")(
         x_contours
     )
     x_contours = FlattenFreqCh()(x_contours)  # contour output
@@ -654,13 +649,13 @@ def get_model() -> tf.keras.Model:
     # reduced contour output as input to notes
     x_contours_reduced = tf.expand_dims(x_contours, -1)
 
-    x_contours_reduced = tfkl.Conv2D(
+    x_contours_reduced = tf.keras.layers.Conv2D(
         32, (7, 7), padding="same", strides=(1, 3)
     )(x_contours_reduced)
-    x_contours_reduced = tfkl.ReLU()(x_contours_reduced)
+    x_contours_reduced = tf.keras.layers.ReLU()(x_contours_reduced)
 
     # note output layer
-    x_notes_pre = tfkl.Conv2D(1, (7, 3), padding="same", activation="sigmoid")(
+    x_notes_pre = tf.keras.layers.Conv2D(1, (7, 3), padding="same", activation="sigmoid")(
         x_contours_reduced
     )
     x_notes = FlattenFreqCh()(x_notes_pre)
@@ -668,11 +663,11 @@ def get_model() -> tf.keras.Model:
     # onset output layer
 
     # onsets - fully convolutional
-    x_onset = tfkl.Conv2D(32, (5, 5), padding="same", strides=(1, 3))(x)
-    x_onset = tfkl.BatchNormalization()(x_onset)
-    x_onset = tfkl.ReLU()(x_onset)
-    x_onset = tfkl.Concatenate(axis=3)([x_notes_pre, x_onset])
-    x_onset = tfkl.Conv2D(1, (3, 3), padding="same", activation="sigmoid")(x_onset)
+    x_onset = tf.keras.layers.Conv2D(32, (5, 5), padding="same", strides=(1, 3))(x)
+    x_onset = tf.keras.layers.BatchNormalization()(x_onset)
+    x_onset = tf.keras.layers.ReLU()(x_onset)
+    x_onset = tf.keras.layers.Concatenate(axis=3)([x_notes_pre, x_onset])
+    x_onset = tf.keras.layers.Conv2D(1, (3, 3), padding="same", activation="sigmoid")(x_onset)
 
     x_onset = FlattenFreqCh()(x_onset)
 
@@ -831,11 +826,6 @@ def predict(
     )
 
     return model_output, midi_data, note_events
-
-
-MIDI_OFFSET = 21
-N_PITCH_BEND_TICKS = 8192
-MAX_FREQ_IDX = 87
 
 
 def model_output_to_notes(

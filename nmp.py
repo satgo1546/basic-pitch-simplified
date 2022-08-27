@@ -50,40 +50,6 @@ def hz_to_midi(frequencies: ArrayLike):
     return 12 * (np.log2(frequencies) - np.log2(440)) + 69
 
 
-def create_lowpass_filter(
-    band_center: float = 0.5,
-    kernel_length: int = 256,
-    transition_bandwidth: float = 0.03,
-    dtype: tf.dtypes.DType = tf.float32,
-) -> np.ndarray:
-    """
-    Calculate the highest frequency we need to preserve and the lowest frequency we allow
-    to pass through. Note that frequency is on a scale from 0 to 1 where 0 is 0 and 1 is
-    the Nyquist frequency of the signal BEFORE downsampling.
-    """
-
-    passband_max = band_center / (1 + transition_bandwidth)
-    stopband_min = band_center * (1 + transition_bandwidth)
-
-    # We specify a list of key frequencies for which we will require
-    # that the filter match a specific output gain.
-    # From [0.0 to passband_max] is the frequency range we want to keep
-    # untouched and [stopband_min, 1.0] is the range we want to remove
-    key_frequencies = [0.0, passband_max, stopband_min, 1.0]
-
-    # We specify a list of output gains to correspond to the key
-    # frequencies listed above.
-    # The first two gains are 1.0 because they correspond to the first
-    # two key frequencies. the second two are 0.0 because they
-    # correspond to the stopband frequencies
-    gain_at_key_frequencies = [1.0, 1.0, 0.0, 0.0]
-
-    # This command produces the filter kernel coefficients
-    filter_kernel = scipy.signal.firwin2(kernel_length, key_frequencies, gain_at_key_frequencies)
-
-    return tf.constant(filter_kernel, dtype=dtype)
-
-
 def create_cqt_kernels(
     Q: float,
     fs: float,
@@ -281,7 +247,27 @@ class CQT(tf.keras.layers.Layer):
         # This will be used to calculate filter_cutoff and creating CQT kernels
         Q = 1 / (2 ** (1 / self.bins_per_octave) - 1)
 
-        self.lowpass_filter = create_lowpass_filter(band_center=0.5, kernel_length=256, transition_bandwidth=0.001)
+        # This command produces the filter kernel coefficients
+        self.lowpass_filter = scipy.signal.firwin2(
+            256,  # kernel_length
+            # We specify a list of key frequencies for which we will require
+            # that the filter match a specific output gain.
+            # From [0.0 to passband_max] is the frequency range we want to keep
+            # untouched and [stopband_min, 1.0] is the range we want to remove
+            [
+                0.0,
+                # band_center = 0.5; transition_bandwidth = 0.001
+                0.5 / 1.001,  # passband_max
+                0.5 * 1.001,  # stopband_min
+                1.0,
+            ],
+            # We specify a list of output gains to correspond to the key
+            # frequencies listed above.
+            # The first two gains are 1.0 because they correspond to the first
+            # two key frequencies. the second two are 0.0 because they
+            # correspond to the stopband frequencies
+            [1.0, 1.0, 0.0, 0.0],
+        ).astype(np.float32)
 
         # Calculate num of filter requires for the kernel
         # n_octaves determines how many resampling requires for the CQT

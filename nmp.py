@@ -438,40 +438,6 @@ class FlattenFreqCh(tf.keras.layers.Layer):
         return tf.keras.layers.Reshape([shapes[1], shapes[2] * shapes[3]])(x)  # ignore batch size
 
 
-class NormalizedLog(tf.keras.layers.Layer):
-    """
-    Takes an input with a shape of either (batch, x, y, z) or (batch, y, z)
-    and rescales each (y, z) to dB, scaled 0 - 1.
-    Only x=1 is supported.
-    This layer adds 1e-10 to all values as a way to avoid NaN math.
-    """
-
-    def build(self, input_shape: tf.Tensor) -> None:
-        self.squeeze_batch = lambda batch: batch
-        rank = input_shape.rank
-        if rank == 4:
-            assert input_shape[1] == 1, "If the rank is 4, the second dimension must be length 1"
-            self.squeeze_batch = lambda batch: tf.squeeze(batch, axis=1)
-        else:
-            assert rank == 3, f"Only ranks 3 and 4 are supported!. Received rank {rank} for {input_shape}."
-
-    def call(self, inputs: tf.Tensor) -> tf.Tensor:
-        inputs = self.squeeze_batch(inputs)  # type: ignore
-        # convert magnitude to power
-        power = tf.math.square(inputs)
-        log_power = 10 * tf.math.log(power + 1e-10)
-
-        log_power_min = tf.reshape(tf.math.reduce_min(log_power, axis=[1, 2]), [tf.shape(inputs)[0], 1, 1])
-        log_power_offset = log_power - log_power_min
-        log_power_offset_max = tf.reshape(
-            tf.math.reduce_max(log_power_offset, axis=[1, 2]),
-            [tf.shape(inputs)[0], 1, 1],
-        )
-        log_power_normalized = tf.math.divide_no_nan(log_power_offset, log_power_offset_max)
-
-        return tf.reshape(log_power_normalized, tf.shape(inputs))
-
-
 def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tensor:
     """Calculate the CQT of the input audio.
 
@@ -499,7 +465,17 @@ def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tens
         n_bins=n_semitones * CONTOURS_BINS_PER_SEMITONE,
         bins_per_octave=12 * CONTOURS_BINS_PER_SEMITONE,
     )(x)
-    x = NormalizedLog()(x)
+    """
+    Take an input with a shape of (batch, y, z) and rescale each (y, z) to dB, scaled 0 - 1.
+    This layer adds 1e-10 to all values as a way to avoid NaN math.
+    """
+    # square to convert magnitude to power
+    x = 10 * tf.math.log(tf.math.square(x) + 1e-10)
+    x -= tf.reshape(tf.math.reduce_min(x, axis=[1, 2]), [tf.shape(x)[0], 1, 1])
+    x = tf.math.divide_no_nan(x, tf.reshape(
+        tf.math.reduce_max(x, axis=[1, 2]),
+        [tf.shape(x)[0], 1, 1],
+    ))
     x = tf.expand_dims(x, -1)
     if use_batchnorm:
         x = tf.keras.layers.BatchNormalization()(x)

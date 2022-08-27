@@ -55,22 +55,18 @@ def create_cqt_kernels(
     fmin: float,
     n_bins: int = 84,
     bins_per_octave: int = 12,
-    norm: int = 1,
-) -> Tuple[NDArray, int, NDArray, NDArray]:
+) -> Tuple[NDArray, int]:
     """Automatically create CQT kernels in time domain
     """
-
-    next_power_of_2 = math.ceil(np.log2(np.ceil(Q * fs / fmin)))
-    fftLen = 2 ** next_power_of_2
+    n_fft = 2 ** math.ceil(np.log2(np.ceil(Q * fs / fmin)))
     freqs = fmin * 2 ** (np.arange(n_bins) / bins_per_octave)
-    tempKernel = np.zeros((n_bins, fftLen), dtype=np.complex64)
-    lengths = np.ceil(Q * fs / freqs)
+    cqt_kernels = np.zeros((n_bins, n_fft), dtype=np.complex64)
     for k in range(n_bins):
         freq = freqs[k]
         _l = math.ceil(Q * fs / freq)
 
         # Centering the kernels, pad more zeros on RHS
-        start = math.ceil(fftLen / 2 - _l / 2) - _l % 2
+        start = math.ceil(n_fft / 2 - _l / 2) - _l % 2
 
         sig = (
             scipy.signal.get_window("hann", _l, fftbins=True)
@@ -78,12 +74,10 @@ def create_cqt_kernels(
             / _l
         )
 
-        if norm:  # Normalizing the filter # Trying to normalize like librosa
-            tempKernel[k, start : start + _l] = sig / np.linalg.norm(sig, norm)
-        else:
-            tempKernel[k, start : start + _l] = sig
+        # Normalize the CQT kernels like librosa, which uses L1 normalization.
+        cqt_kernels[k, start : start + _l] = sig / np.linalg.norm(sig, 1)
 
-    return tempKernel, fftLen, lengths, freqs
+    return cqt_kernels, n_fft
 
 
 class CQT(tf.keras.layers.Layer):
@@ -126,13 +120,6 @@ class CQT(tf.keras.layers.Layer):
         The total numbers of CQT bins. Default is 84. Will be ignored if ``fmax`` is not ``None``.
     bins_per_octave : int
         Number of bins per octave. Default is 12.
-    basis_norm : int
-        Normalization for the CQT kernels. ``1`` means L1 normalization, and ``2`` means L2 normalization.
-        Default is ``1``, which is same as the normalization used in librosa.
-    trainable : bool
-        Determine if the CQT kernels are trainable or not. If ``True``, the gradients for CQT kernels
-        will also be caluclated and the CQT kernels will be updated during model training.
-        Default value is ``False``
     Returns
     -------
     spectrogram : tf.Tensor
@@ -140,25 +127,17 @@ class CQT(tf.keras.layers.Layer):
     It returns a tensor of spectrograms.
     shape = ``(num_samples, freq_bins,time_steps)``.
     """
-
-    def __init__(
+    def call(
         self,
+        x: tf.Tensor,
         n_bins: int = 84,
         bins_per_octave: int = 12,
-        basis_norm: int = 1,
-    ):
-        super().__init__()
-
-        self.n_bins = n_bins
-        self.bins_per_octave = bins_per_octave
-        self.basis_norm = basis_norm
-
-    def build(self, input_shape: tf.TensorShape) -> None:
+    ) -> tf.Tensor:
         # This will be used to calculate filter_cutoff and creating CQT kernels
-        Q = 1 / (2 ** (1 / self.bins_per_octave) - 1)
+        Q = 1 / (2 ** (1 / bins_per_octave) - 1)
 
         # This command produces the filter kernel coefficients
-        self.lowpass_filter = scipy.signal.firwin2(
+        lowpass_filter = scipy.signal.firwin2(
             256,  # kernel_length
             # We specify a list of key frequencies for which we will require
             # that the filter match a specific output gain.
@@ -181,56 +160,38 @@ class CQT(tf.keras.layers.Layer):
 
         # Calculate num of filter requires for the kernel
         # n_octaves determines how many resampling requires for the CQT
-        n_filters = min(self.bins_per_octave, self.n_bins)
-        self.n_octaves = int(np.ceil(float(self.n_bins) / self.bins_per_octave))
+        n_filters = min(bins_per_octave, n_bins)
+        n_octaves = math.ceil(n_bins / bins_per_octave)
 
-        # Calculate the lowest frequency bin for the top octave kernel
-        self.fmin_t = ANNOTATIONS_BASE_FREQUENCY * 2 ** (self.n_octaves - 1)
-        remainder = self.n_bins % self.bins_per_octave
-
-        if remainder == 0:
-            # Calculate the top bin frequency
-            fmax_t = self.fmin_t * 2 ** ((self.bins_per_octave - 1) / self.bins_per_octave)
-        else:
-            # Calculate the top bin frequency
-            fmax_t = self.fmin_t * 2 ** ((remainder - 1) / self.bins_per_octave)
-
-        self.fmin_t = fmax_t / 2 ** (1 - 1 / self.bins_per_octave)  # Adjusting the top minium bins
+        # Calculate the lowest frequency bin for the top octave kernel.
+        fmin_t = ANNOTATIONS_BASE_FREQUENCY * 2 ** (n_octaves - 1)
+        # Calculate the top bin frequency.
+        fmax_t = fmin_t * 2 ** ((n_bins - 1) % bins_per_octave / bins_per_octave)
+        # Adjust the top minium bins.
+        fmin_t = fmax_t / 2 ** (1 - 1 / bins_per_octave)
 
         # Preparing CQT kernels
-        basis, self.n_fft, _, _ = create_cqt_kernels(
+        basis, n_fft = create_cqt_kernels(
             Q,
             AUDIO_SAMPLE_RATE,
-            self.fmin_t,
+            fmin_t,
             n_filters,
-            self.bins_per_octave,
-            norm=self.basis_norm,
+            bins_per_octave,
         )
 
-        # For the normalization in the end
-        # The freqs returned by create_cqt_kernels cannot be used
-        # Since that returns only the top octave bins
-        # We need the information for all freq bin
-        freqs = ANNOTATIONS_BASE_FREQUENCY * 2 ** (np.arange(self.n_bins) / self.bins_per_octave)
-        self.frequencies = freqs
-
-        self.lengths = np.ceil(Q * AUDIO_SAMPLE_RATE / freqs)
-
-        self.basis = basis
         # NOTE(psobot): this is where the implementation here starts to differ from CQT2010.
 
         # These cqt_kernel is already in the frequency domain
-        self.cqt_kernels_real = tf.expand_dims(basis.real.astype(self.dtype), 1)
-        self.cqt_kernels_imag = tf.expand_dims(basis.imag.astype(self.dtype), 1)
+        cqt_kernels_real = tf.expand_dims(basis.real, 1)
+        cqt_kernels_imag = tf.expand_dims(basis.imag, 1)
 
-    def call(self, x: tf.Tensor) -> tf.Tensor:
         x = x[:, None, :]
 
         hop = FFT_HOP
 
         # Getting the top octave CQT
         CQTs = []
-        for i in range(self.n_octaves):
+        for i in range(n_octaves):
             if i:
                 hop //= 2
                 """Downsample the given tensor using the given filter kernel.
@@ -243,11 +204,11 @@ class CQT(tf.keras.layers.Layer):
                 x = tf.pad(x, [
                     [0, 0],
                     [0, 0],
-                    [(self.lowpass_filter.shape[-1] - 1) // 2, (self.lowpass_filter.shape[-1] - 1) // 2],
+                    [(lowpass_filter.shape[-1] - 1) // 2, (lowpass_filter.shape[-1] - 1) // 2],
                 ])
                 # Store this tensor in the shape `(n_batches, width, channels)`
                 x = tf.transpose(x, [0, 2, 1])
-                x = tf.nn.conv1d(x, self.lowpass_filter[:, None, None], padding="VALID", stride=2)
+                x = tf.nn.conv1d(x, lowpass_filter[:, None, None], padding="VALID", stride=2)
                 x = tf.transpose(x, [0, 2, 1])
             """Multiplying the STFT result with the cqt_kernel, check out the 1992 CQT paper [1]
             for how to multiple the STFT result with the CQT kernel
@@ -255,11 +216,11 @@ class CQT(tf.keras.layers.Layer):
             a constant Q transform.” (1992)."""
 
             # When center is True, the STFT window will be put in the middle, and paddings at the beginning and ending are required.
-            padded = tf.pad(x, [[0, 0], [0, 0], [self.n_fft // 2, self.n_fft // 2]], "REFLECT")
+            padded = tf.pad(x, [[0, 0], [0, 0], [n_fft // 2, n_fft // 2]], "REFLECT")
             CQT_real = tf.transpose(
                 tf.nn.conv1d(
                     tf.transpose(padded, [0, 2, 1]),
-                    tf.transpose(self.cqt_kernels_real, [2, 1, 0]),
+                    tf.transpose(cqt_kernels_real, [2, 1, 0]),
                     padding="VALID",
                     stride=hop,
                 ),
@@ -268,7 +229,7 @@ class CQT(tf.keras.layers.Layer):
             CQT_imag = -tf.transpose(
                 tf.nn.conv1d(
                     tf.transpose(padded, [0, 2, 1]),
-                    tf.transpose(self.cqt_kernels_imag, [2, 1, 0]),
+                    tf.transpose(cqt_kernels_imag, [2, 1, 0]),
                     padding="VALID",
                     stride=hop,
                 ),
@@ -280,10 +241,13 @@ class CQT(tf.keras.layers.Layer):
             )
         CQT = tf.concat(CQTs, axis=1)
 
-        CQT = CQT[:, -self.n_bins :, :]  # Removing unwanted bottom bins
+        CQT = CQT[:, -n_bins :, :]  # Removing unwanted bottom bins
 
-        # Normalize again to get same result as librosa
-        CQT *= tf.math.sqrt(tf.cast(self.lengths.reshape((-1, 1, 1)), self.dtype))
+        # Normalize again to get same result as librosa.
+        # The freqs returned by create_cqt_kernels cannot be used, since that returns only the top octave bins. We need the information for all freq bin.
+        freqs = ANNOTATIONS_BASE_FREQUENCY * 2 ** (np.arange(n_bins) / bins_per_octave)
+        lengths = np.ceil(Q * AUDIO_SAMPLE_RATE / freqs)
+        CQT *= tf.math.sqrt(tf.cast(lengths.reshape((-1, 1, 1)), tf.float32))
 
         # Transpose the output to match the output of the other spectrogram layers.
         # Getting CQT Amplitude
@@ -315,10 +279,7 @@ def get_model() -> tf.keras.Model:
         math.floor(12 * np.log2(0.5 * AUDIO_SAMPLE_RATE / ANNOTATIONS_BASE_FREQUENCY)),
     )
     x = tf.squeeze(inputs, -1)
-    x = CQT(
-        n_bins=n_semitones * CONTOURS_BINS_PER_SEMITONE,
-        bins_per_octave=12 * CONTOURS_BINS_PER_SEMITONE,
-    )(x)
+    x = CQT()(x, n_semitones * CONTOURS_BINS_PER_SEMITONE, 12 * CONTOURS_BINS_PER_SEMITONE)
     """
     Take an input with a shape of (batch, y, z) and rescale each (y, z) to dB, scaled 0 - 1.
     This layer adds 1e-10 to all values as a way to avoid NaN math.
@@ -423,16 +384,14 @@ def unwrap_output(output: tf.Tensor, audio_original_length: int, n_overlapping_f
         array (n_times, n_freqs)
     """
     raw_output = output.numpy()
-    if len(raw_output.shape) != 3:
-        return None
 
-    n_olap = int(0.5 * n_overlapping_frames)
-    if n_olap > 0:
+    n_overlapping_frames //= 2
+    if n_overlapping_frames > 0:
         # remove half of the overlapping frames from beginning and end
-        raw_output = raw_output[:, n_olap:-n_olap, :]
+        raw_output = raw_output[:, n_overlapping_frames:-n_overlapping_frames, :]
 
     output_shape = raw_output.shape
-    n_output_frames_original = int(np.floor(audio_original_length * (ANNOTATIONS_FPS / AUDIO_SAMPLE_RATE)))
+    n_output_frames_original = audio_original_length * ANNOTATIONS_FPS // AUDIO_SAMPLE_RATE
     unwrapped_output = raw_output.reshape(output_shape[0] * output_shape[1], output_shape[2])
     return unwrapped_output[:n_output_frames_original, :]  # trim to original audio length
 
@@ -494,7 +453,7 @@ def predict(
             if np.issubdtype(audio_original.dtype, np.integer)
             else 1
         ),
-        int(len(audio_original) * AUDIO_SAMPLE_RATE / audio_original_samplerate),
+        len(audio_original) * AUDIO_SAMPLE_RATE // audio_original_samplerate,
         window=("kaiser", 12.984585247040012),
     )
     audio_original_length = len(audio_original)
@@ -534,7 +493,6 @@ def predict(
         min_note_len: The minimum allowed note length in frames.
         min_freq: Minimum allowed output frequency, in Hz. If None, all frequencies are used.
         max_freq: Maximum allowed output frequency, in Hz. If None, all frequencies are used.
-        include_pitch_bends: If True, include pitch bends.
 
     Returns:
         midi : pretty_midi.PrettyMIDI object
@@ -622,22 +580,25 @@ def predict(
     )
     for start_time, end_time, note_number, amplitude, pitch_bend in note_events:
         note = pretty_midi.Note(
-            velocity=int(np.round(127 * amplitude)),
+            velocity=round(127 * amplitude),
             pitch=note_number,
             start=start_time,
             end=end_time,
         )
         instrument.notes.append(note)
-        if not pitch_bend:
-            continue
-        pitch_bend_times = np.linspace(start_time, end_time, len(pitch_bend))
-        pitch_bend_midi_ticks = np.round(np.array(pitch_bend) * 4096 / CONTOURS_BINS_PER_SEMITONE).astype(int)
-        # This supports pitch bends up to 2 semitones
-        # If we estimate pitch bends above/below 2 semitones, crop them here when adding them to the midi file
-        pitch_bend_midi_ticks[pitch_bend_midi_ticks > N_PITCH_BEND_TICKS - 1] = N_PITCH_BEND_TICKS - 1
-        pitch_bend_midi_ticks[pitch_bend_midi_ticks < -N_PITCH_BEND_TICKS] = -N_PITCH_BEND_TICKS
-        for pb_time, pb_midi in zip(pitch_bend_times, pitch_bend_midi_ticks):
-            instrument.pitch_bends.append(pretty_midi.PitchBend(pb_midi, pb_time))
+        if pitch_bend:
+            pitch_bend_times = np.linspace(start_time, end_time, len(pitch_bend))
+            # This supports pitch bends up to 2 semitones.
+            # If we estimate pitch bends above/below 2 semitones, crop them here when adding them to the midi file.
+            pitch_bend_midi_ticks = np.clip(
+                np.round(
+                    np.array(pitch_bend) * 4096 / CONTOURS_BINS_PER_SEMITONE
+                ).astype(int),
+                -N_PITCH_BEND_TICKS,
+                N_PITCH_BEND_TICKS - 1,
+            )
+            for pb_time, pb_midi in zip(pitch_bend_times, pitch_bend_midi_ticks):
+                instrument.pitch_bends.append(pretty_midi.PitchBend(pb_midi, pb_time))
     midi_data.instruments.append(instrument)
 
     return model_output, midi_data, note_events
@@ -717,16 +678,13 @@ def output_to_notes_polyphonic(
     peak_thresh_mat = np.zeros_like(onsets)
     peaks = scipy.signal.argrelmax(onsets, axis=0)
     peak_thresh_mat[peaks] = onsets[peaks]
-
-    onset_idx = np.where(peak_thresh_mat >= onset_thresh)
-    onset_time_idx = onset_idx[0][::-1]  # sort to go backwards in time
-    onset_freq_idx = onset_idx[1][::-1]  # sort to go backwards in time
+    onsets = peak_thresh_mat
 
     remaining_energy = frames >= frame_thresh
 
-    # loop over onsets
     note_events = []
-    for note_start_idx, freq_idx in zip(onset_time_idx, onset_freq_idx):
+    # Loop over onsets, going backwards in time.
+    for note_start_idx, freq_idx in reversed(np.argwhere(onsets >= onset_thresh)):
         # if we're too close to the end of the audio, continue
         if note_start_idx >= n_frames - 1:
             continue
@@ -787,7 +745,7 @@ def output_to_notes_polyphonic(
 
         i_end = i - 1 - k  # go back to frame above threshold
 
-        assert i_start >= 0, "{}".format(i_start)
+        assert i_start >= 0, i_start
         assert i_end < n_frames
 
         if i_end - i_start <= min_note_len:

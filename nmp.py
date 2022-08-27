@@ -7,8 +7,7 @@
 
 import os
 import math
-import warnings
-from typing import Any, List, Dict, Optional, Tuple, Union
+from typing import List, Dict, Optional, Tuple
 
 import numpy as np
 from numpy.typing import NDArray, ArrayLike
@@ -144,8 +143,6 @@ class CQT(tf.keras.layers.Layer):
 
     def __init__(
         self,
-        sr: int = 22050,
-        hop_length: int = 512,
         fmin: float = 32.70,
         fmax: Optional[float] = None,
         n_bins: int = 84,
@@ -155,8 +152,6 @@ class CQT(tf.keras.layers.Layer):
     ):
         super().__init__()
 
-        self.sample_rate: Union[float, int] = sr
-        self.hop_length = hop_length
         self.fmin = fmin
         self.fmax = fmax
         self.n_bins = n_bins
@@ -207,15 +202,11 @@ class CQT(tf.keras.layers.Layer):
             fmax_t = self.fmin_t * 2 ** ((remainder - 1) / self.bins_per_octave)
 
         self.fmin_t = fmax_t / 2 ** (1 - 1 / self.bins_per_octave)  # Adjusting the top minium bins
-        if fmax_t > self.sample_rate / 2:
-            raise ValueError(
-                "The top bin {}Hz has exceeded the Nyquist frequency, please reduce the n_bins".format(fmax_t)
-            )
 
         # Preparing CQT kernels
         basis, self.n_fft, _, _ = create_cqt_kernels(
             Q,
-            self.sample_rate,
+            AUDIO_SAMPLE_RATE,
             self.fmin_t,
             n_filters,
             self.bins_per_octave,
@@ -229,7 +220,7 @@ class CQT(tf.keras.layers.Layer):
         freqs = self.fmin * 2.0 ** (np.r_[0 : self.n_bins] / np.float(self.bins_per_octave))
         self.frequencies = freqs
 
-        self.lengths = np.ceil(Q * self.sample_rate / freqs)
+        self.lengths = np.ceil(Q * AUDIO_SAMPLE_RATE / freqs)
 
         self.basis = basis
         # NOTE(psobot): this is where the implementation here starts to differ from CQT2010.
@@ -255,7 +246,7 @@ class CQT(tf.keras.layers.Layer):
     def call(self, x: tf.Tensor) -> tf.Tensor:
         x = self.reshape_input(x)  # type: ignore
 
-        hop = self.hop_length
+        hop = FFT_HOP
 
         # Getting the top octave CQT
         CQTs = []
@@ -345,8 +336,6 @@ def get_model() -> tf.keras.Model:
     )
     x = tf.squeeze(inputs, -1)
     x = CQT(
-        sr=AUDIO_SAMPLE_RATE,
-        hop_length=FFT_HOP,
         fmin=ANNOTATIONS_BASE_FREQUENCY,
         n_bins=n_semitones * CONTOURS_BINS_PER_SEMITONE,
         bins_per_octave=12 * CONTOURS_BINS_PER_SEMITONE,

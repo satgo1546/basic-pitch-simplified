@@ -369,7 +369,13 @@ class HarmonicStacking(tf.keras.layers.Layer):
         return x
 
 
-def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tensor:
+def get_model() -> tf.keras.Model:
+    """Basic Pitch's model implementation.
+    """
+    # The number of harmonics to use in the harmonic stacking layer.
+    n_harmonics = 8
+    # input representation
+    inputs = tf.keras.Input(shape=(AUDIO_N_SAMPLES, 1))  # (batch, time, ch)
     """Calculate the CQT of the input audio.
 
     Input shape: (batch, number of audio samples, 1)
@@ -379,7 +385,6 @@ def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tens
         inputs: The audio input.
         n_harmonics: The number of harmonics to capture above the maximum output frequency.
             Used to calculate the number of semitones for the CQT.
-        use_batchnorm: If True, applies batch normalization after computing the CQT
 
     Returns:
         The log-normalized CQT of the input audio.
@@ -408,19 +413,8 @@ def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tens
         [tf.shape(x)[0], 1, 1],
     ))
     x = tf.expand_dims(x, -1)
-    if use_batchnorm:
-        x = tf.keras.layers.BatchNormalization()(x)
-    return x
-
-
-def get_model() -> tf.keras.Model:
-    """Basic Pitch's model implementation.
-    """
-    # The number of harmonics to use in the harmonic stacking layer.
-    n_harmonics = 8
-    # input representation
-    inputs = tf.keras.Input(shape=(AUDIO_N_SAMPLES, 1))  # (batch, time, ch)
-    x = get_cqt(inputs, n_harmonics, True)
+    # Apply batch normalization after computing the CQT.
+    x = tf.keras.layers.BatchNormalization()(x)
 
     x = HarmonicStacking(
         CONTOURS_BINS_PER_SEMITONE,

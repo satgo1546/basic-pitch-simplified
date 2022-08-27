@@ -62,7 +62,7 @@ def create_cqt_kernels(
 
     next_power_of_2 = math.ceil(np.log2(np.ceil(Q * fs / fmin)))
     fftLen = 2 ** next_power_of_2
-    freqs = fmin * 2.0 ** (np.r_[0:n_bins] / np.float(bins_per_octave))
+    freqs = fmin * 2 ** (np.arange(n_bins) / bins_per_octave)
     tempKernel = np.zeros((n_bins, fftLen), dtype=np.complex64)
     lengths = np.ceil(Q * fs / freqs)
     for k in range(n_bins):
@@ -143,8 +143,6 @@ class CQT(tf.keras.layers.Layer):
 
     def __init__(
         self,
-        fmin: float = 32.70,
-        fmax: Optional[float] = None,
         n_bins: int = 84,
         bins_per_octave: int = 12,
         basis_norm: int = 1,
@@ -152,8 +150,6 @@ class CQT(tf.keras.layers.Layer):
     ):
         super().__init__()
 
-        self.fmin = fmin
-        self.fmax = fmax
         self.n_bins = n_bins
         self.bins_per_octave = bins_per_octave
         self.basis_norm = basis_norm
@@ -191,7 +187,7 @@ class CQT(tf.keras.layers.Layer):
         self.n_octaves = int(np.ceil(float(self.n_bins) / self.bins_per_octave))
 
         # Calculate the lowest frequency bin for the top octave kernel
-        self.fmin_t = self.fmin * 2 ** (self.n_octaves - 1)
+        self.fmin_t = ANNOTATIONS_BASE_FREQUENCY * 2 ** (self.n_octaves - 1)
         remainder = self.n_bins % self.bins_per_octave
 
         if remainder == 0:
@@ -217,7 +213,7 @@ class CQT(tf.keras.layers.Layer):
         # The freqs returned by create_cqt_kernels cannot be used
         # Since that returns only the top octave bins
         # We need the information for all freq bin
-        freqs = self.fmin * 2.0 ** (np.r_[0 : self.n_bins] / np.float(self.bins_per_octave))
+        freqs = ANNOTATIONS_BASE_FREQUENCY * 2 ** (np.arange(self.n_bins) / self.bins_per_octave)
         self.frequencies = freqs
 
         self.lengths = np.ceil(Q * AUDIO_SAMPLE_RATE / freqs)
@@ -336,7 +332,6 @@ def get_model() -> tf.keras.Model:
     )
     x = tf.squeeze(inputs, -1)
     x = CQT(
-        fmin=ANNOTATIONS_BASE_FREQUENCY,
         n_bins=n_semitones * CONTOURS_BINS_PER_SEMITONE,
         bins_per_octave=12 * CONTOURS_BINS_PER_SEMITONE,
     )(x)

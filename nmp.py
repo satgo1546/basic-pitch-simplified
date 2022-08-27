@@ -551,7 +551,6 @@ def predict(
         onsets,
         onset_thresh=onset_threshold,
         frame_thresh=frame_threshold,
-        infer_onsets=True,
         min_note_len=min_note_len,
         min_freq=minimum_frequency,
         max_freq=maximum_frequency,
@@ -569,7 +568,10 @@ def predict(
     Returns:
         note events with pitch bends
     """
-    times_s = model_frames_to_time(contours.shape[0])
+    # Convert model frames to time.
+    times_s = np.arange(contours.shape[0])
+    # Here is a magic number, but it's needed to align properly.
+    times_s = times_s * FFT_HOP / AUDIO_SAMPLE_RATE - times_s // ANNOT_N_FRAMES * (FFT_HOP / AUDIO_SAMPLE_RATE * (ANNOT_N_FRAMES - AUDIO_N_SAMPLES / FFT_HOP) + 0.0018)
     n_bins_tolerance = 25
     freq_gaussian = scipy.signal.gaussian(n_bins_tolerance * 2 + 1, std=5)
     for i, (start_idx, end_idx, pitch_midi, amplitude) in enumerate(note_events):
@@ -641,31 +643,6 @@ def predict(
     return model_output, midi_data, note_events
 
 
-def get_infered_onsets(onsets: NDArray, frames: NDArray, n_diff: int = 2) -> NDArray:
-    """Infer onsets from large changes in frame amplitudes.
-
-    Args:
-        onsets: Array of note onset predictions.
-        frames: Audio frames.
-        n_diff: Differences used to detect onsets.
-
-    Returns:
-        The maximum between the predicted onsets and its differences.
-    """
-    diffs = []
-    for n in range(1, n_diff + 1):
-        frames_appended = np.concatenate([np.zeros((n, frames.shape[1])), frames])
-        diffs.append(frames_appended[n:, :] - frames_appended[:-n, :])
-    frame_diff = np.min(diffs, axis=0)
-    frame_diff[frame_diff < 0] = 0
-    frame_diff[:n_diff, :] = 0
-    frame_diff = np.max(onsets) * frame_diff / np.max(frame_diff)  # rescale to have the same max as onsets
-
-    max_onsets_diff = np.max([onsets, frame_diff], axis=0)  # use the max of the predicted onsets and the differences
-
-    return max_onsets_diff
-
-
 def constrain_frequency(
     x: NDArray, max_freq: Optional[float], min_freq: Optional[float]
 ):
@@ -682,23 +659,12 @@ def constrain_frequency(
         x[:, : round(hz_to_midi(min_freq)) - MIDI_OFFSET] = 0
 
 
-def model_frames_to_time(n_frames: int) -> np.ndarray:
-    original_times = np.arange(n_frames) * FFT_HOP / AUDIO_SAMPLE_RATE
-    window_numbers = np.arange(n_frames) // ANNOT_N_FRAMES
-    window_offset = FFT_HOP / AUDIO_SAMPLE_RATE * (
-        ANNOT_N_FRAMES - AUDIO_N_SAMPLES / FFT_HOP
-    ) + 0.0018  # this is a magic number, but it's needed for this to align properly
-    times = original_times - window_offset * window_numbers
-    return times
-
-
 def output_to_notes_polyphonic(
     frames: NDArray,
     onsets: NDArray,
     onset_thresh: float,
     frame_thresh: float,
     min_note_len: int,
-    infer_onsets: bool,
     max_freq: Optional[float],
     min_freq: Optional[float],
     energy_tol: int = 11,
@@ -725,9 +691,28 @@ def output_to_notes_polyphonic(
 
     constrain_frequency(onsets, max_freq, min_freq)
     constrain_frequency(frames, max_freq, min_freq)
-    # use onsets inferred from frames in addition to the predicted onsets
-    if infer_onsets:
-        onsets = get_infered_onsets(onsets, frames)
+    """Infer onsets from large changes in frame amplitudes, in addition to the predicted onsets.
+
+    Args:
+        onsets: Array of note onset predictions.
+        frames: Audio frames.
+        n_diff: Differences used to detect onsets.
+
+    Returns:
+        The maximum between the predicted onsets and its differences.
+    """
+    # Number of differences used to detect onsets.
+    n_diff = 2
+    frame_diff = np.min(
+        [frames - np.roll(frames, n + 1, axis=0) for n in range(n_diff)], axis=0
+    )
+    frame_diff = np.clip(frame_diff, 0, None)
+    frame_diff[:n_diff, :] = 0
+    # Rescale to have the same maximum as onsets.
+    frame_diff *= np.max(onsets) / np.max(frame_diff)
+    # use the max of the predicted onsets and the differences
+    # The maximum between the predicted onsets and its differences.
+    onsets = np.maximum(onsets, frame_diff)
 
     peak_thresh_mat = np.zeros_like(onsets)
     peaks = scipy.signal.argrelmax(onsets, axis=0)

@@ -519,29 +519,6 @@ def predict(
     model_output = model(audio_windowed)
     model_output = {k: unwrap_output(model_output[k], audio_original_length, n_overlapping_frames) for k in model_output}
 
-    min_note_len = round(minimum_note_length / 1000 * AUDIO_SAMPLE_RATE / FFT_HOP)
-    midi_data, note_events = model_output_to_notes(
-        model_output,
-        onset_thresh=onset_threshold,
-        frame_thresh=frame_threshold,
-        min_note_len=min_note_len,  # convert to frames
-        min_freq=minimum_frequency,
-        max_freq=maximum_frequency,
-    )
-
-    return model_output, midi_data, note_events
-
-
-def model_output_to_notes(
-    output: Dict[str, NDArray],
-    onset_thresh: float,
-    frame_thresh: float,
-    infer_onsets: bool = True,
-    min_note_len: int = 5,
-    min_freq: Optional[float] = None,
-    max_freq: Optional[float] = None,
-    include_pitch_bends: bool = True,
-) -> Tuple[pretty_midi.PrettyMIDI, List[Tuple[float, float, int, float, Optional[List[int]]]]]:
     """Convert model output to MIDI
 
     Args:
@@ -563,43 +540,30 @@ def model_output_to_notes(
         midi : pretty_midi.PrettyMIDI object
         note_events: A list of note event tuples (start_time_s, end_time_s, pitch_midi, amplitude)
     """
-    frames = output["note"]
-    onsets = output["onset"]
-    contours = output["contour"]
+    frames = model_output["note"]
+    onsets = model_output["onset"]
+    contours = model_output["contour"]
 
+    # convert minimum_note_length to frames
+    min_note_len = round(minimum_note_length / 1000 * AUDIO_SAMPLE_RATE / FFT_HOP)
     estimated_notes = output_to_notes_polyphonic(
         frames,
         onsets,
-        onset_thresh=onset_thresh,
-        frame_thresh=frame_thresh,
-        infer_onsets=infer_onsets,
+        onset_thresh=onset_threshold,
+        frame_thresh=frame_threshold,
+        infer_onsets=True,
         min_note_len=min_note_len,
-        min_freq=min_freq,
-        max_freq=max_freq,
+        min_freq=minimum_frequency,
+        max_freq=maximum_frequency,
     )
-    if include_pitch_bends:
-        estimated_notes_with_pitch_bend = get_pitch_bends(contours, estimated_notes)
-    else:
-        estimated_notes_with_pitch_bend = [(note[0], note[1], note[2], note[3], None) for note in estimated_notes]
-
+    estimated_notes_with_pitch_bend = get_pitch_bends(contours, estimated_notes)
     times_s = model_frames_to_time(contours.shape[0])
-    estimated_notes_time_seconds = [
+    note_events = [
         (times_s[note[0]], times_s[note[1]], note[2], note[3], note[4]) for note in estimated_notes_with_pitch_bend
     ]
+    midi_data = note_events_to_midi(note_events)
 
-    return note_events_to_midi(estimated_notes_time_seconds), estimated_notes_time_seconds
-
-
-def midi_pitch_to_contour_bin(pitch_midi: int) -> NDArray:
-    """Convert midi pitch to conrresponding index in contour matrix
-
-    Args:
-        pitch_midi: pitch in midi
-
-    Returns:
-        index in contour matrix
-    """
-    return 12 * CONTOURS_BINS_PER_SEMITONE * np.log2(midi_to_hz(pitch_midi) / ANNOTATIONS_BASE_FREQUENCY)
+    return model_output, midi_data, note_events
 
 
 def get_pitch_bends(
@@ -622,7 +586,8 @@ def get_pitch_bends(
     freq_gaussian = scipy.signal.gaussian(window_length, std=5)
     note_events_with_pitch_bends = []
     for start_idx, end_idx, pitch_midi, amplitude in note_events:
-        freq_idx = int(np.round(midi_pitch_to_contour_bin(pitch_midi)))
+        # Convert midi pitch to conrresponding index in contour matrix.
+        freq_idx = round(12 * CONTOURS_BINS_PER_SEMITONE * np.log2(midi_to_hz(pitch_midi) / ANNOTATIONS_BASE_FREQUENCY))
         freq_start_idx = np.max([freq_idx - n_bins_tolerance, 0])
         freq_end_idx = np.min([N_FREQ_BINS_CONTOURS, freq_idx + n_bins_tolerance + 1])
 

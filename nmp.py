@@ -369,19 +369,6 @@ class HarmonicStacking(tf.keras.layers.Layer):
         return x
 
 
-class FlattenFreqCh(tf.keras.layers.Layer):
-    """Layer to flatten the frequency channel and make each channel
-    part of the frequency dimension.
-
-    Input shape: (batch, time, freq, ch)
-    Output shape: (batch, time, freq*ch)
-    """
-
-    def call(self, x: tf.Tensor) -> tf.Tensor:
-        shapes = tf.keras.backend.int_shape(x)
-        return tf.keras.layers.Reshape([shapes[1], shapes[2] * shapes[3]])(x)  # ignore batch size
-
-
 def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tensor:
     """Calculate the CQT of the input audio.
 
@@ -428,14 +415,8 @@ def get_cqt(inputs: tf.Tensor, n_harmonics: int, use_batchnorm: bool) -> tf.Tens
 
 def get_model() -> tf.keras.Model:
     """Basic Pitch's model implementation.
-
-    Args:
-        n_harmonics: The number of harmonics to use in the harmonic stacking layer.
-        n_filters_contour: Number of filters for the contour convolutional layer.
-        n_filters_onsets: Number of filters for the onsets convolutional layer.
-        n_filters_notes: Number of filters for the notes convolutional layer.
-        no_contours: Whether or not to include contours in the output.
     """
+    # The number of harmonics to use in the harmonic stacking layer.
     n_harmonics = 8
     # input representation
     inputs = tf.keras.Input(shape=(AUDIO_N_SAMPLES, 1))  # (batch, time, ch)
@@ -451,17 +432,16 @@ def get_model() -> tf.keras.Model:
     x_contours = tf.keras.layers.Conv2D(32, (5, 5), padding="same")(x)
 
     x_contours = tf.keras.layers.BatchNormalization()(x_contours)
-    x_contours = tf.keras.layers.ReLU()(x_contours)
+    x_contours = tf.nn.relu(x_contours)
 
     x_contours = tf.keras.layers.Conv2D(8, (3, 3 * 13), padding="same")(x)
 
     x_contours = tf.keras.layers.BatchNormalization()(x_contours)
-    x_contours = tf.keras.layers.ReLU()(x_contours)
+    x_contours = tf.nn.relu(x_contours)
 
-    x_contours = tf.keras.layers.Conv2D(1, (5, 5), padding="same", activation="sigmoid")(
-        x_contours
-    )
-    x_contours = FlattenFreqCh()(x_contours)  # contour output
+    x_contours = tf.keras.layers.Conv2D(1, (5, 5), padding="same")(x_contours)
+    x_contours = tf.sigmoid(x_contours)
+    x_contours = tf.squeeze(x_contours, -1)  # contour output
 
     # reduced contour output as input to notes
     x_contours_reduced = tf.expand_dims(x_contours, -1)
@@ -469,24 +449,24 @@ def get_model() -> tf.keras.Model:
     x_contours_reduced = tf.keras.layers.Conv2D(
         32, (7, 7), padding="same", strides=(1, 3)
     )(x_contours_reduced)
-    x_contours_reduced = tf.keras.layers.ReLU()(x_contours_reduced)
+    x_contours_reduced = tf.nn.relu(x_contours_reduced)
 
     # note output layer
     x_notes_pre = tf.keras.layers.Conv2D(1, (7, 3), padding="same", activation="sigmoid")(
         x_contours_reduced
     )
-    x_notes = FlattenFreqCh()(x_notes_pre)
+    x_notes = tf.squeeze(x_notes_pre, -1)
 
     # onset output layer
 
     # onsets - fully convolutional
     x_onset = tf.keras.layers.Conv2D(32, (5, 5), padding="same", strides=(1, 3))(x)
     x_onset = tf.keras.layers.BatchNormalization()(x_onset)
-    x_onset = tf.keras.layers.ReLU()(x_onset)
-    x_onset = tf.keras.layers.Concatenate(axis=3)([x_notes_pre, x_onset])
-    x_onset = tf.keras.layers.Conv2D(1, (3, 3), padding="same", activation="sigmoid")(x_onset)
-
-    x_onset = FlattenFreqCh()(x_onset)
+    x_onset = tf.nn.relu(x_onset)
+    x_onset = tf.concat([x_notes_pre, x_onset], axis=3)
+    x_onset = tf.keras.layers.Conv2D(1, (3, 3), padding="same")(x_onset)
+    x_onset = tf.sigmoid(x_onset)
+    x_onset = tf.squeeze(x_onset, -1)
 
     outputs = {"onset": x_onset, "contour": x_contours, "note": x_notes}
 

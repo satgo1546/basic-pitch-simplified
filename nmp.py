@@ -1,4 +1,4 @@
-#!/usr/bin/env python
+#!/usr/bin/env python3
 # encoding: utf-8
 
 # This module is comprised of PyTorch layers from NNAudio and ported to TensorFlow:

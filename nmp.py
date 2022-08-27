@@ -84,27 +84,6 @@ def create_lowpass_filter(
     return tf.constant(filter_kernel, dtype=dtype)
 
 
-def next_power_of_2(A: int) -> int:
-    """A helper function to calculate the next nearest number to the power of 2."""
-    return math.ceil(np.log2(A))
-
-
-def get_window_dispatch(window: Union[str, Tuple[str, float]], N: int, fftbins: bool = True) -> NDArray:
-    if isinstance(window, str):
-        return scipy.signal.get_window(window, N, fftbins=fftbins)
-    elif isinstance(window, tuple):
-        if window[0] == "gaussian":
-            assert window[1] >= 0
-            sigma = np.floor(-N / 2 / np.sqrt(-2 * np.log(10 ** (-window[1] / 20))))
-            return scipy.signal.get_window(("gaussian", sigma), N, fftbins=fftbins)
-        else:
-            Warning("Tuple windows may have undesired behaviour regarding Q factor")
-    elif isinstance(window, float):
-        Warning("You are using Kaiser window with beta factor " + str(window) + ". Correct behaviour not checked.")
-    else:
-        raise Exception("The function get_window from scipy only supports strings, tuples and floats.")
-
-
 def create_cqt_kernels(
     Q: float,
     fs: float,
@@ -112,12 +91,12 @@ def create_cqt_kernels(
     n_bins: int = 84,
     bins_per_octave: int = 12,
     norm: int = 1,
-    window: str = "hann",
 ) -> Tuple[NDArray, int, NDArray, NDArray]:
     """Automatically create CQT kernels in time domain
     """
 
-    fftLen = 2 ** next_power_of_2(np.ceil(Q * fs / fmin))
+    next_power_of_2 = math.ceil(np.log2(np.ceil(Q * fs / fmin)))
+    fftLen = 2 ** next_power_of_2
     freqs = fmin * 2.0 ** (np.r_[0:n_bins] / np.float(bins_per_octave))
     tempKernel = np.zeros((n_bins, fftLen), dtype=np.complex64)
     lengths = np.ceil(Q * fs / freqs)
@@ -129,7 +108,7 @@ def create_cqt_kernels(
         start = math.ceil(fftLen / 2 - _l / 2) - _l % 2
 
         sig = (
-            get_window_dispatch(window, _l, fftbins=True)
+            scipy.signal.get_window("hann", _l, fftbins=True)
             * np.exp(2j * np.pi * np.r_[-_l // 2 : _l // 2] * freq / fs)
             / _l
         )
@@ -219,74 +198,6 @@ class ReflectionPad1D(tf.keras.layers.Layer):
 
     def call(self, x: tf.Tensor) -> tf.Tensor:
         return tf.pad(x, [[0, 0], [0, 0], [self.padding, self.padding]], "REFLECT")
-
-
-def pad_center(data: np.ndarray, size: int, axis: int = -1, **kwargs: Any) -> np.ndarray:
-    """Wrapper for np.pad to automatically center an array prior to padding.
-    This is analogous to `str.center()`
-
-    Examples
-    --------
-    >>> # Generate a vector
-    >>> data = np.ones(5)
-    >>> librosa.util.pad_center(data, 10, mode='constant')
-    array([ 0.,  0.,  1.,  1.,  1.,  1.,  1.,  0.,  0.,  0.])
-    >>> # Pad a matrix along its first dimension
-    >>> data = np.ones((3, 5))
-    >>> librosa.util.pad_center(data, 7, axis=0)
-    array([[ 0.,  0.,  0.,  0.,  0.],
-           [ 0.,  0.,  0.,  0.,  0.],
-           [ 1.,  1.,  1.,  1.,  1.],
-           [ 1.,  1.,  1.,  1.,  1.],
-           [ 1.,  1.,  1.,  1.,  1.],
-           [ 0.,  0.,  0.,  0.,  0.],
-           [ 0.,  0.,  0.,  0.,  0.]])
-    >>> # Or its second dimension
-    >>> librosa.util.pad_center(data, 7, axis=1)
-    array([[ 0.,  1.,  1.,  1.,  1.,  1.,  0.],
-           [ 0.,  1.,  1.,  1.,  1.,  1.,  0.],
-           [ 0.,  1.,  1.,  1.,  1.,  1.,  0.]])
-
-    Parameters
-    ----------
-    data : np.ndarray
-        Vector to be padded and centered
-    size : int >= len(data) [scalar]
-        Length to pad `data`
-    axis : int
-        Axis along which to pad and center the data
-    kwargs : additional keyword arguments
-      arguments passed to `np.pad()`
-
-    Returns
-    -------
-    data_padded : np.ndarray
-        `data` centered and padded to length `size` along the
-        specified axis
-
-    Raises
-    ------
-    ValueError
-        If `size < data.shape[axis]`
-
-    See Also
-    --------
-    numpy.pad
-    """
-
-    kwargs.setdefault("mode", "constant")
-
-    n = data.shape[axis]
-
-    lpad = int((size - n) // 2)
-
-    lengths = [(0, 0)] * data.ndim
-    lengths[axis] = (lpad, int(size - n - lpad))
-
-    if lpad < 0:
-        raise ValueError(("Target size ({:d}) must be at least input size ({:d})").format(size, n))
-
-    return np.pad(data, lengths, **kwargs)
 
 
 class CQT(tf.keras.layers.Layer):

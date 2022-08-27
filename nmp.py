@@ -87,73 +87,6 @@ def create_cqt_kernels(
     return tempKernel, fftLen, lengths, freqs
 
 
-def get_cqt_complex(
-    x: tf.Tensor,
-    cqt_kernels_real: tf.Tensor,
-    cqt_kernels_imag: tf.Tensor,
-    hop_length: int,
-    padding: int,
-) -> tf.Tensor:
-    """Multiplying the STFT result with the cqt_kernel, check out the 1992 CQT paper [1]
-    for how to multiple the STFT result with the CQT kernel
-    [2] Brown, Judith C.C. and Miller Puckette. “An efficient algorithm for the calculation of
-    a constant Q transform.” (1992)."""
-
-    try:
-        # When center is True, the STFT window will be put in the middle, and paddings at the beginning and ending are required.
-        x = tf.pad(x, [[0, 0], [0, 0], [padding, padding]], "REFLECT")
-    except Exception:
-        warnings.warn(
-            f"\ninput size = {x.shape}\tkernel size = {cqt_kernels_real.shape[-1]}\n"
-            "padding with reflection mode might not be the best choice, try using constant padding",
-            UserWarning,
-        )
-        x = tf.pad(x, (cqt_kernels_real.shape[-1] // 2, cqt_kernels_real.shape[-1] // 2))
-    CQT_real = tf.transpose(
-        tf.nn.conv1d(
-            tf.transpose(x, [0, 2, 1]),
-            tf.transpose(cqt_kernels_real, [2, 1, 0]),
-            padding="VALID",
-            stride=hop_length,
-        ),
-        [0, 2, 1],
-    )
-    CQT_imag = -tf.transpose(
-        tf.nn.conv1d(
-            tf.transpose(x, [0, 2, 1]),
-            tf.transpose(cqt_kernels_imag, [2, 1, 0]),
-            padding="VALID",
-            stride=hop_length,
-        ),
-        [0, 2, 1],
-    )
-
-    return tf.stack((CQT_real, CQT_imag), axis=-1)
-
-
-def downsampling_by_n(x: tf.Tensor, filter_kernel: tf.Tensor, n: float) -> tf.Tensor:
-    """Downsample the given tensor using the given filter kernel.
-    The input tensor is expected to have shape `(n_batches, channels, width)`,
-    and the filter kernel is expected to have shape `(num_output_channels,)` (i.e.: 1D)
-
-    If match_torch_exactly is passed, we manually pad the input rather than having TensorFlow do so with "SAME".
-    The result is subtly different than Torch's output, but it is compatible with TensorFlow Lite (as of v2.4.1).
-    """
-
-    paddings = [
-        [0, 0],
-        [0, 0],
-        [(filter_kernel.shape[-1] - 1) // 2, (filter_kernel.shape[-1] - 1) // 2],
-    ]
-    padded = tf.pad(x, paddings)
-
-    # Store this tensor in the shape `(n_batches, width, channels)`
-    padded_nwc = tf.transpose(padded, [0, 2, 1])
-    result_nwc = tf.nn.conv1d(padded_nwc, filter_kernel[:, None, None], padding="VALID", stride=n)
-    result_ncw = tf.transpose(result_nwc, [0, 2, 1])
-    return result_ncw
-
-
 class CQT(tf.keras.layers.Layer):
     """This layer calculates the CQT of the input signal.
     Input signal should be in either of the following shapes.
@@ -329,10 +262,50 @@ class CQT(tf.keras.layers.Layer):
         for i in range(self.n_octaves):
             if i:
                 hop //= 2
-                x = downsampling_by_n(x, self.lowpass_filter, 2)
+                """Downsample the given tensor using the given filter kernel.
+                The input tensor is expected to have shape `(n_batches, channels, width)`,
+                and the filter kernel is expected to have shape `(num_output_channels,)` (i.e.: 1D)
+
+                If match_torch_exactly is passed, we manually pad the input rather than having TensorFlow do so with "SAME".
+                The result is subtly different than Torch's output, but it is compatible with TensorFlow Lite (as of v2.4.1).
+                """
+                x = tf.pad(x, [
+                    [0, 0],
+                    [0, 0],
+                    [(self.lowpass_filter.shape[-1] - 1) // 2, (self.lowpass_filter.shape[-1] - 1) // 2],
+                ])
+                # Store this tensor in the shape `(n_batches, width, channels)`
+                x = tf.transpose(x, [0, 2, 1])
+                x = tf.nn.conv1d(x, self.lowpass_filter[:, None, None], padding="VALID", stride=2)
+                x = tf.transpose(x, [0, 2, 1])
+            """Multiplying the STFT result with the cqt_kernel, check out the 1992 CQT paper [1]
+            for how to multiple the STFT result with the CQT kernel
+            [2] Brown, Judith C.C. and Miller Puckette. “An efficient algorithm for the calculation of
+            a constant Q transform.” (1992)."""
+
+            # When center is True, the STFT window will be put in the middle, and paddings at the beginning and ending are required.
+            padded = tf.pad(x, [[0, 0], [0, 0], [self.n_fft // 2, self.n_fft // 2]], "REFLECT")
+            CQT_real = tf.transpose(
+                tf.nn.conv1d(
+                    tf.transpose(padded, [0, 2, 1]),
+                    tf.transpose(self.cqt_kernels_real, [2, 1, 0]),
+                    padding="VALID",
+                    stride=hop,
+                ),
+                [0, 2, 1],
+            )
+            CQT_imag = -tf.transpose(
+                tf.nn.conv1d(
+                    tf.transpose(padded, [0, 2, 1]),
+                    tf.transpose(self.cqt_kernels_imag, [2, 1, 0]),
+                    padding="VALID",
+                    stride=hop,
+                ),
+                [0, 2, 1],
+            )
             CQTs.insert(
                 0,
-                get_cqt_complex(x, self.cqt_kernels_real, self.cqt_kernels_imag, hop, self.n_fft // 2)
+                tf.stack((CQT_real, CQT_imag), axis=-1)
             )
         CQT = tf.concat(CQTs, axis=1)
 
